@@ -1,0 +1,471 @@
+.app {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  position: relative;
+}
+
+.titlebar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1.75rem;
+  z-index: 9999;
+  -webkit-app-region: drag;
+  app-region: drag;
+  pointer-events: auto;
+  background: transparent;
+}
+
+.theme-switcher {
+  position: absolute;
+  top: 52px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 15;
+  display: flex;
+  gap: 6px;
+  padding: var(--sp-1) var(--sp-3);
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: var(--glass-border-width) solid var(--glass-border);
+  border-radius: var(--shape-pill);
+  box-shadow: var(--glass-shadow);
+}
+
+.theme-swatch {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+  padding: 0;
+}
+
+.theme-swatch:hover {
+  transform: scale(1.15);
+}
+
+.theme-swatch--active {
+  transform: scale(1.2);
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.2);
+}
+
+.maplibregl-ctrl-bottom-left,
+.maplibregl-ctrl-bottom-right {
+  display: none;
+}
+
+
+/* Force MapLibre markers above deck.gl canvas */
+.maplibregl-marker {
+  z-index: 3 !important;
+}
+
+.location-bar {
+  position: absolute;
+  bottom: var(--sp-4);
+  left: var(--sp-4);
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: var(--glass-border-width) solid var(--glass-border);
+  border-radius: var(--radius-md);
+  padding: var(--sp-3) var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm-size);
+  color: var(--color-text-secondary);
+  box-shadow: var(--glass-shadow);
+  min-width: 200px;
+}
+
+.location-bar__row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.location-bar__isp {
+  font-family: var(--font-sans);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-primary);
+  font-size: var(--text-sm-size);
+}
+
+.location-bar__badge {
+  font-family: var(--font-sans);
+  font-size: var(--text-xs-size);
+  font-weight: var(--weight-medium);
+  color: var(--color-text-primary);
+  background: rgba(255, 255, 255, 0.12);
+  padding: 1px 8px;
+  border-radius: var(--shape-pill);
+  white-space: nowrap;
+}
+
+.location-bar__sep {
+  width: 1px;
+  height: 14px;
+  background: var(--color-border-default);
+}
+
+.laptop-marker {
+  object-fit: contain;
+  filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.15));
+  pointer-events: none;
+}
+
+.location-bar__active {
+  color: var(--color-text-primary);
+}
+
+.sidebar-tabs {
+  display: flex;
+  gap: 0;
+  padding: 0;
+  margin-bottom: var(--sp-3);
+  border-bottom: 1px solid var(--glass-border);
+  flex-shrink: 0;
+  width: 100%;
+}
+
+.sidebar-tab {
+  flex: 1;
+  padding: var(--sp-2) var(--sp-3);
+  text-align: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-1);
+  background: none;
+  border: none;
+  color: var(--color-text-tertiary);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm-size);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.sidebar-tab:hover {
+  color: var(--color-text-secondary);
+}
+
+.sidebar-tab--active {
+  color: var(--color-text-primary);
+  border-bottom-color: var(--color-text-primary);
+}
+
+.elevation-banner {
+  position: absolute;
+  top: 52px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 15;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-4);
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: var(--glass-border-width) solid var(--glass-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--glass-shadow);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm-size);
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+.zoom-controls {
+  position: absolute;
+  bottom: var(--sp-4);
+  right: calc(var(--sidebar-width, 340px) + var(--sp-4) + var(--sp-4));
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  z-index: 4;
+}
+
+.map-btn-tooltip {
+  position: relative;
+}
+
+.map-btn-tooltip::before {
+  content: attr(data-tooltip);
+  position: absolute;
+  right: calc(100% + 8px);
+  top: 50%;
+  transform: translateY(-50%);
+  background: var(--glass-bg-elevated);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: var(--glass-border-width) solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  padding: var(--sp-1) var(--sp-2);
+  font-size: var(--text-xs-size);
+  font-family: var(--font-sans);
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.map-btn-tooltip:hover::before {
+  opacity: 1;
+}
+
+/* Override Tag neutral to be visible on glass backgrounds */
+.sidebar .tag--neutral {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--color-text-primary);
+}
+
+.endpoint-icon {
+  object-fit: contain;
+  filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.1));
+  cursor: pointer;
+  transition: filter 0.15s ease, transform 0.15s ease;
+}
+
+.endpoint-icon--selected {
+  transform: scale(1.15);
+}
+
+.endpoint-icon:hover {
+  filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.3));
+}
+
+/* Glass container + brand icon compositing */
+.endpoint-glass {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  will-change: transform;
+  transition: transform 0.15s ease;
+}
+
+.endpoint-glass:hover {
+  transform: scale(1.08);
+}
+
+.endpoint-glass.endpoint-icon--selected {
+  transform: scale(1.15);
+}
+
+.endpoint-glass__container {
+  display: block;
+  object-fit: contain;
+}
+
+/* Brand glow — blurred duplicate behind the icon */
+.endpoint-glass__glow {
+  position: absolute;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+/* Brand icon — sits on top of the glass */
+.endpoint-glass__brand {
+  position: absolute;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.endpoint-label {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-top: var(--sp-1);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* Endpoint detail header card */
+.endpoint-detail-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-4);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.endpoint-detail-header__back {
+  position: absolute;
+  top: var(--sp-2);
+  left: var(--sp-2);
+  z-index: 1;
+  opacity: 0.8;
+}
+
+.endpoint-detail-header__back:hover {
+  opacity: 1;
+}
+
+.endpoint-detail-header__icon {
+  position: relative;
+  width: 52px;
+  height: 52px;
+  flex-shrink: 0;
+  margin-left: var(--sp-4);
+}
+
+.endpoint-detail-header__brand-flat {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.endpoint-detail-header__fallback {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.endpoint-detail-header__info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.endpoint-detail-header__name {
+  font-size: var(--text-base-size);
+  font-weight: var(--weight-semibold);
+  line-height: var(--text-base-line);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.endpoint-detail-header__subtitle {
+  font-size: var(--text-xs-size);
+  line-height: var(--text-xs-line);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.endpoint-detail-header__badges {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: center;
+  margin-top: var(--sp-1);
+}
+
+/* Auto-scroll text that overflows */
+.text-scroll {
+  overflow: hidden;
+  white-space: nowrap;
+  position: relative;
+}
+
+.text-scroll__inner {
+  display: inline-block;
+  white-space: nowrap;
+  animation: none;
+}
+
+.text-scroll--active .text-scroll__inner {
+  animation: text-scroll 8s linear infinite;
+  padding-right: var(--sp-6);
+}
+
+@keyframes text-scroll {
+  0%, 15% { transform: translateX(0); }
+  50%, 65% { transform: translateX(calc(-100% + var(--scroll-container-width, 200px))); }
+  100% { transform: translateX(0); }
+}
+
+.endpoint-tooltip {
+  position: fixed;
+  pointer-events: none;
+  z-index: 100;
+  background: var(--glass-bg-elevated);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: var(--glass-border-width) solid var(--glass-border);
+  border-radius: var(--radius-md);
+  padding: var(--sp-2) var(--sp-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm-size);
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  box-shadow: var(--glass-shadow);
+}
+
+.endpoint-tooltip__domain {
+  font-weight: var(--weight-medium);
+}
+
+.endpoint-tooltip__location {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs-size);
+}
+
+.endpoint-tooltip__stats {
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs-size);
+  margin-top: 2px;
+}
+
+.endpoint-tooltip__connections {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding-top: 4px;
+}
+
+.endpoint-tooltip__conn-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-xs-size);
+}
+
+.endpoint-tooltip__service {
+  color: var(--color-text-primary);
+  background: rgba(255, 255, 255, 0.1);
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  font-weight: var(--weight-medium);
+  flex-shrink: 0;
+}
+
+.endpoint-tooltip__process {
+  color: var(--color-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.endpoint-tooltip__port {
+  color: var(--color-text-tertiary);
+  flex-shrink: 0;
+}
+
+.endpoint-tooltip__more {
+  font-size: var(--text-xs-size);
+  color: var(--color-text-tertiary);
+  padding-top: 2px;
+}
+

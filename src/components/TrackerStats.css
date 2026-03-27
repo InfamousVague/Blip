@@ -1,0 +1,58 @@
+.tracker-stats__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-3);
+  padding: var(--sp-8) var(--sp-4);
+  border-radius: var(--radius-md);
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  box-shadow: var(--glass-shadow);
+}
+
+.tracker-stats__shield-icon {
+  font-size: 2rem;
+  opacity: 0.5;
+}
+
+.tracker-stats__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  max-height: 480px;
+  overflow-y: auto;
+  border-radius: var(--radius-md);
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  box-shadow: var(--glass-shadow);
+  padding: var(--sp-2);
+}
+
+.tracker-stats__list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.tracker-stats__list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.tracker-stats__list::-webkit-scrollbar-thumb {
+  background: var(--glass-border);
+  border-radius: 2px;
+}
+
+.tracker-stats__row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2);
+  border-radius: var(--radius-sm);
+  transition: background 0.15s ease;
+}
+
+.tracker-stats__row:hover {
+  background: rgba(255, 255, 255, 0.04);
+}

@@ -1,0 +1,18 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "enables the default permissions",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "core:event:default",
+    "geolocation:allow-request-permissions",
+    "geolocation:allow-check-permissions",
+    "geolocation:allow-get-current-position",
+    "geolocation:allow-watch-position",
+    "geolocation:allow-clear-watch",
+    "core:window:allow-start-dragging"
+  ]
+}

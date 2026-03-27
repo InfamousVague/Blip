@@ -1,0 +1,27 @@
+name: BlipNetworkExtension
+options:
+  bundleIdPrefix: com.infamousvague.blip
+  deploymentTarget:
+    macOS: "12.0"
+  xcodeVersion: "16.0"
+
+targets:
+  BlipNetworkExtension:
+    type: system-extension
+    platform: macOS
+    sources:
+      - Sources
+    info:
+      path: Info.plist
+    entitlements:
+      path: Entitlements.plist
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.infamousvague.blip.network-extension
+        PRODUCT_NAME: com.infamousvague.blip.network-extension
+        SWIFT_VERSION: "5.9"
+        CODE_SIGN_STYLE: Manual
+        DEVELOPMENT_TEAM: F6ZAL7ANAD
+        MACOSX_DEPLOYMENT_TARGET: "12.0"
+        SKIP_INSTALL: "YES"
+        ENABLE_HARDENED_RUNTIME: "YES"
