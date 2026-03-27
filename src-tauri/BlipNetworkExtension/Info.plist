@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleDisplayName</key>
+    <string>Blip Network Extension</string>
+    <key>CFBundleExecutable</key>
+    <string>com.infamousvague.blip.network-extension</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.infamousvague.blip.network-extension</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>BlipNetworkExtension</string>
+    <key>CFBundlePackageType</key>
+    <string>SYSX</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>12.0</string>
+    <key>NSSystemExtensionUsageDescription</key>
+    <string>Blip uses a system extension to monitor network connections in real-time.</string>
+    <key>NetworkExtension</key>
+    <dict>
+        <key>NEFilterProvider</key>
+        <dict>
+            <key>NEFilterProviderConfiguration</key>
+            <dict/>
+            <key>NEMachServiceName</key>
+            <string>com.infamousvague.blip.network-extension</string>
+        </dict>
+        <key>NEDNSProxyProvider</key>
+        <dict>
+            <key>NEMachServiceName</key>
+            <string>com.infamousvague.blip.network-extension.dns</string>
+        </dict>
+        <key>NEProviderClasses</key>
+        <dict>
+            <key>com.apple.networkextension.filter-data</key>
+            <string>BlipFilterProvider</string>
+            <key>com.apple.networkextension.dns-proxy</key>
+            <string>BlipDNSProvider</string>
+        </dict>
+    </dict>
+</dict>
+</plist>

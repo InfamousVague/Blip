@@ -1,0 +1,6 @@
+.stream-chart {
+  background: var(--glass-bg-subtle);
+  border: var(--glass-border-width) solid var(--glass-border);
+  border-radius: var(--radius-md);
+  padding: var(--sp-2);
+}
