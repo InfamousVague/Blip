@@ -1,11 +1,13 @@
+import { useRef } from "react";
 import { useControl } from "react-map-gl/maplibre";
 import { MapboxOverlay } from "@deck.gl/mapbox";
-import { ArcLayer as DeckArcLayer, ScatterplotLayer } from "@deck.gl/layers";
-import type { ArcData, ParticleData } from "../hooks/useArcAnimation";
+import { ArcLayer as DeckArcLayer, ScatterplotLayer, TextLayer } from "@deck.gl/layers";
+import type { ArcData, ParticleData, BlockedMarkerData } from "../hooks/useArcAnimation";
 
 interface Props {
   arcs: ArcData[];
   particles?: ParticleData[];
+  blockedMarkers?: BlockedMarkerData[];
   showParticles?: boolean;
 }
 
@@ -15,7 +17,10 @@ function DeckGLOverlay({ layers }: { layers: any[] }) {
   return null;
 }
 
-export function NetworkArcLayer({ arcs, particles = [], showParticles = false }: Props) {
+export function NetworkArcLayer({ arcs, particles = [], blockedMarkers = [], showParticles = false }: Props) {
+  const frameCounter = useRef(0);
+  frameCounter.current += 1;
+
   const arcLayer = new DeckArcLayer<ArcData>({
     id: "network-arcs",
     data: arcs,
@@ -30,33 +35,55 @@ export function NetworkArcLayer({ arcs, particles = [], showParticles = false }:
     widthMinPixels: 1,
     widthMaxPixels: 4,
     updateTriggers: {
-      getSourceColor: [arcs.length, Date.now()],
-      getTargetColor: [arcs.length, Date.now()],
-      getWidth: [arcs.length],
+      getSourceColor: [arcs.length, frameCounter.current],
+      getTargetColor: [arcs.length, frameCounter.current],
+      getWidth: [arcs.length, frameCounter.current],
     },
   });
 
   const layers: unknown[] = [arcLayer];
 
   if (showParticles && particles.length > 0) {
-    // Core dot — fully opaque, no glow, depthTest disabled to render on top of 3D arcs
     const particleLayer = new ScatterplotLayer<ParticleData>({
       id: "network-particles",
       data: particles,
       getPosition: (d) => d.path[Math.floor(d.path.length / 2)],
       getFillColor: (d) => [d.color[0], d.color[1], d.color[2], 255] as [number, number, number, number],
-      getRadius: (d) => d.width * 600,
-      radiusMinPixels: 3,
-      radiusMaxPixels: 6,
+      getRadius: (d) => d.width * 200,
+      radiusMinPixels: 1,
+      radiusMaxPixels: 3,
       opacity: 1,
       parameters: { depthTest: false } as any,
       updateTriggers: {
-        getPosition: [Date.now()],
+        getPosition: [frameCounter.current],
         getFillColor: [particles.length],
       },
     });
 
     layers.push(particleLayer);
+  }
+
+  // Red X markers at midpoints of blocked/flashing arcs
+  if (blockedMarkers.length > 0) {
+    const blockedLayer = new TextLayer<BlockedMarkerData>({
+      id: "blocked-markers",
+      data: blockedMarkers,
+      getPosition: (d) => d.position,
+      getText: () => "\u2715",
+      getColor: (d) => [255, 50, 50, Math.round(d.opacity * 255)],
+      getSize: 18,
+      getAngle: 0,
+      getTextAnchor: "middle",
+      getAlignmentBaseline: "center",
+      fontFamily: "system-ui, -apple-system, sans-serif",
+      fontWeight: "bold",
+      billboard: true,
+      parameters: { depthTest: false } as any,
+      updateTriggers: {
+        getColor: [frameCounter.current],
+      },
+    });
+    layers.push(blockedLayer);
   }
 
   return <DeckGLOverlay layers={layers} />;

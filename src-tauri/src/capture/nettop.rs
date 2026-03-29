@@ -20,7 +20,10 @@ struct ConnKey {
 }
 
 /// Shared connection state that the frontend can poll
-pub type ConnectionStore = Arc<std::sync::Mutex<ConnectionState>>;
+pub type ConnectionStore = Arc<std::sync::RwLock<ConnectionState>>;
+
+/// Max connections kept in memory
+const MAX_CONNECTIONS: usize = 2000;
 
 pub struct ConnectionState {
     pub connections: HashMap<String, ResolvedConnection>,
@@ -28,6 +31,12 @@ pub struct ConnectionState {
     id_map: HashMap<ConnKey, String>,
     /// Process names learned from lsof, keyed by dest_ip:dest_port
     process_cache: HashMap<ConnKey, String>,
+    /// Generation counter — incremented on every mutation, used for delta polling
+    pub generation: u64,
+    /// Tracks which IDs were changed at each generation (for delta queries)
+    pub changed_ids: HashMap<String, u64>,
+    /// IDs removed since last cleanup
+    pub removed_ids: Vec<(String, u64)>,
 }
 
 impl ConnectionState {
@@ -37,6 +46,26 @@ impl ConnectionState {
             total_ever: 0,
             id_map: HashMap::new(),
             process_cache: HashMap::new(),
+            generation: 0,
+            changed_ids: HashMap::new(),
+            removed_ids: Vec::new(),
+        }
+    }
+
+    /// Mark a connection as changed at the current generation
+    pub fn mark_changed(&mut self, id: &str) {
+        self.generation += 1;
+        self.changed_ids.insert(id.to_string(), self.generation);
+    }
+
+    /// Mark a connection as removed
+    pub fn mark_removed(&mut self, id: &str) {
+        self.generation += 1;
+        self.removed_ids.push((id.to_string(), self.generation));
+        self.changed_ids.remove(id);
+        // Cap removed_ids to prevent unbounded growth
+        if self.removed_ids.len() > 500 {
+            self.removed_ids.drain(..250);
         }
     }
 }
@@ -68,7 +97,7 @@ pub async fn start_capture(
         lsof_tick += 1;
         if lsof_tick % 4 == 0 {
             let lsof_processes = snapshot_lsof_processes(is_elevated).await;
-            let mut state = store.lock().unwrap();
+            let mut state = store.write().unwrap();
             for (key, process) in lsof_processes {
                 state.process_cache.insert(key, process);
             }
@@ -80,7 +109,7 @@ pub async fn start_capture(
         // Collect new connections outside the lock
         let mut new_connections: Vec<(ConnKey, String, GeoResult, Option<String>)> = Vec::new();
         {
-            let state = store.lock().unwrap();
+            let state = store.read().unwrap();
             for key in &netstat_connections {
                 current_keys.insert(key.clone());
                 if !state.id_map.contains_key(key) {
@@ -95,7 +124,7 @@ pub async fn start_capture(
 
         // Insert new + update existing with brief lock
         {
-            let mut state = store.lock().unwrap();
+            let mut state = store.write().unwrap();
 
             // Update existing
             for key in &netstat_connections {
@@ -177,6 +206,7 @@ pub async fn start_capture(
 
                 state.id_map.insert(key, id.clone());
                 db_writer.send(DbMessage::InsertConnection(conn.clone()));
+                state.mark_changed(&id);
                 state.connections.insert(id, conn);
                 state.total_ever += 1;
             }
@@ -195,22 +225,42 @@ pub async fn start_capture(
                         if conn.active {
                             conn.active = false;
                             conn.last_seen_ms = now;
+                            state.mark_changed(&id);
                         }
                     }
                 }
             }
 
-            // Remove expired (inactive > 30s)
+            // Remove expired (inactive > 15s) and cap store size
             let expired: Vec<String> = state
                 .connections
                 .iter()
-                .filter(|(_, c)| !c.active && now - c.last_seen_ms > 30_000)
+                .filter(|(_, c)| !c.active && now - c.last_seen_ms > 15_000)
                 .map(|(id, _)| id.clone())
                 .collect();
             for id in &expired {
                 state.connections.remove(id);
+                state.mark_removed(id);
             }
             state.id_map.retain(|_, id| !expired.contains(id));
+
+            // Cap store size — evict oldest inactive connections first
+            if state.connections.len() > MAX_CONNECTIONS {
+                let mut inactive: Vec<(String, u64)> = state
+                    .connections
+                    .iter()
+                    .filter(|(_, c)| !c.active)
+                    .map(|(id, c)| (id.clone(), c.last_seen_ms))
+                    .collect();
+                inactive.sort_by_key(|(_, ts)| *ts);
+                let to_evict = state.connections.len() - MAX_CONNECTIONS;
+                for (id, _) in inactive.into_iter().take(to_evict) {
+                    state.connections.remove(&id);
+                    state.mark_removed(&id);
+                }
+                let conn_keys: HashSet<String> = state.connections.keys().cloned().collect();
+                state.id_map.retain(|_, id| conn_keys.contains(id));
+            }
         }
 
         // Use forward DNS mapping to upgrade domains and detect trackers
@@ -218,7 +268,7 @@ pub async fn start_capture(
         // but we know the real domain from passive DNS capture
         {
             if let Ok(mapping) = dns_mapping.try_read() {
-                let mut state = store.lock().unwrap();
+                let mut state = store.write().unwrap();
                 let ids: Vec<String> = state.connections.keys().cloned().collect();
                 for id in ids {
                     if let Some(conn) = state.connections.get_mut(&id) {
@@ -252,7 +302,7 @@ pub async fn start_capture(
 
         // Resolve DNS in background for connections still without a domain
         {
-            let state = store.lock().unwrap();
+            let state = store.write().unwrap();
             let needs_dns: Vec<(String, String)> = state
                 .connections
                 .iter()
@@ -269,7 +319,7 @@ pub async fn start_capture(
                 tokio::task::spawn_blocking(move || {
                     if let Some(domain) = dns.lookup(&ip) {
                         let is_blocked = blocklists.is_blocked(&domain);
-                        if let Ok(mut state) = store.lock() {
+                        if let Ok(mut state) = store.write() {
                             if let Some(conn) = state.connections.get_mut(&id) {
                                 conn.domain = Some(domain.clone());
                                 if is_blocked {
@@ -298,7 +348,7 @@ pub async fn start_capture(
 
         // Measure ping (TCP connect time) for connections that don't have it yet
         {
-            let state = store.lock().unwrap();
+            let state = store.write().unwrap();
             let needs_ping: Vec<(String, String, u16)> = state
                 .connections
                 .iter()
@@ -319,7 +369,7 @@ pub async fn start_capture(
                             tokio::net::TcpStream::connect(addr),
                         ).await {
                             let ms = start.elapsed().as_secs_f64() * 1000.0;
-                            if let Ok(mut state) = store.lock() {
+                            if let Ok(mut state) = store.write() {
                                 if let Some(conn) = state.connections.get_mut(&id) {
                                     conn.ping_ms = Some((ms * 10.0).round() / 10.0);
                                 }

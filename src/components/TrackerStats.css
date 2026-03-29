@@ -1,3 +1,14 @@
+/* Root — fills sidebar, prevents parent from scrolling */
+.tracker-stats {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  flex: 1;
+  min-height: 0;
+  /* Prevent sidebar from scrolling when this tab is active */
+  overflow: hidden;
+}
+
 .tracker-stats__empty {
   display: flex;
   flex-direction: column;
@@ -5,11 +16,7 @@
   justify-content: center;
   gap: var(--sp-3);
   padding: var(--sp-8) var(--sp-4);
-  border-radius: var(--radius-md);
-  background: var(--glass-bg);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  box-shadow: var(--glass-shadow);
+  flex: 1;
 }
 
 .tracker-stats__shield-icon {
@@ -17,18 +24,17 @@
   opacity: 0.5;
 }
 
+/* Scrollable list card — fills space between stats and pagination */
 .tracker-stats__list {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-1);
-  max-height: 480px;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: var(--radius-md);
-  background: var(--glass-bg);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  box-shadow: var(--glass-shadow);
-  padding: var(--sp-2);
+  padding: var(--sp-1);
 }
 
 .tracker-stats__list::-webkit-scrollbar {
@@ -40,7 +46,7 @@
 }
 
 .tracker-stats__list::-webkit-scrollbar-thumb {
-  background: var(--glass-border);
+  background: rgba(255, 255, 255, 0.1);
   border-radius: 2px;
 }
 
@@ -49,8 +55,8 @@
   align-items: center;
   gap: var(--sp-2);
   padding: var(--sp-2);
-  border-radius: var(--radius-sm);
-  transition: background 0.15s ease;
+  border-radius: var(--radius-md);
+  transition: background var(--duration-fast) var(--ease-default);
 }
 
 .tracker-stats__row:hover {

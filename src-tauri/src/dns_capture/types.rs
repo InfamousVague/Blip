@@ -39,13 +39,18 @@ pub struct DnsStats {
     pub recent_rate: f64, // queries per second over last 10s
 }
 
+/// Max entries for in-memory caches
+const MAX_IP_MAPPINGS: usize = 50_000;
+const MAX_RECENT_QUERIES: usize = 500;
+const MAX_RATE_TIMESTAMPS: usize = 1000;
+
 /// Bidirectional domain ↔ IP mapping built from observed DNS traffic.
 pub struct DnsMapping {
     /// IP → (domain, timestamp_ms) — the most recent domain that resolved to this IP
     ip_to_domain: HashMap<IpAddr, (String, u64)>,
-    /// domain → list of IPs it has resolved to
+    /// domain → set of IPs (deduped)
     domain_to_ips: HashMap<String, Vec<IpAddr>>,
-    /// Recent DNS query log for the frontend (capped at 2000 entries)
+    /// Recent DNS query log for the frontend (capped)
     recent_queries: VecDeque<DnsQueryLogEntry>,
     /// Running counters
     pub total_queries: u64,
@@ -89,14 +94,33 @@ impl DnsMapping {
         for ip_str in &event.ips {
             if let Ok(ip) = ip_str.parse::<IpAddr>() {
                 self.ip_to_domain.insert(ip, (event.domain.clone(), event.ts));
-                self.domain_to_ips
-                    .entry(event.domain.clone())
-                    .or_default()
-                    .push(ip);
+                let ips = self.domain_to_ips.entry(event.domain.clone()).or_default();
+                if !ips.contains(&ip) {
+                    ips.push(ip);
+                }
             }
         }
 
-        // Add to query log (cap at 2000)
+        // Evict oldest IP mappings if over limit
+        if self.ip_to_domain.len() > MAX_IP_MAPPINGS {
+            // Find the oldest entries and remove them
+            let mut entries: Vec<(IpAddr, u64)> = self.ip_to_domain.iter().map(|(ip, (_, ts))| (*ip, *ts)).collect();
+            entries.sort_by_key(|(_, ts)| *ts);
+            let to_remove = entries.len() - MAX_IP_MAPPINGS / 2;
+            for (ip, _) in entries.into_iter().take(to_remove) {
+                self.ip_to_domain.remove(&ip);
+            }
+        }
+
+        // Cap domain_to_ips too
+        if self.domain_to_ips.len() > MAX_IP_MAPPINGS / 10 {
+            // Just keep the most recently seen domains (via ip_to_domain)
+            let active_domains: std::collections::HashSet<&str> =
+                self.ip_to_domain.values().map(|(d, _)| d.as_str()).collect();
+            self.domain_to_ips.retain(|d, _| active_domains.contains(d.as_str()));
+        }
+
+        // Add to query log (capped)
         self.recent_queries.push_back(DnsQueryLogEntry {
             domain: event.domain.clone(),
             query_type: event.query_type.clone(),
@@ -106,14 +130,17 @@ impl DnsMapping {
             blocked_by,
             source_app,
         });
-        while self.recent_queries.len() > 2000 {
+        while self.recent_queries.len() > MAX_RECENT_QUERIES {
             self.recent_queries.pop_front();
         }
 
-        // Track timestamps for rate calculation
+        // Track timestamps for rate calculation (cap to avoid unbounded growth)
         self.recent_timestamps.push_back(event.ts);
         let cutoff = event.ts.saturating_sub(10_000);
         while self.recent_timestamps.front().map_or(false, |&t| t < cutoff) {
+            self.recent_timestamps.pop_front();
+        }
+        while self.recent_timestamps.len() > MAX_RATE_TIMESTAMPS {
             self.recent_timestamps.pop_front();
         }
     }
@@ -156,6 +183,11 @@ impl DnsMapping {
             return 0.0; // All queries at same millisecond — no meaningful rate
         }
         (self.recent_timestamps.len() as f64) / (span as f64 / 1000.0)
+    }
+
+    /// Look up cached IPs for a domain.
+    pub fn ips_for_domain(&self, domain: &str) -> Option<&Vec<IpAddr>> {
+        self.domain_to_ips.get(domain)
     }
 
     /// Build DnsStats for the frontend.

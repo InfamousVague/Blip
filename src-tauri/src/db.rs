@@ -6,7 +6,31 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 #[allow(dead_code)]
-const CURRENT_SCHEMA_VERSION: i32 = 2;
+const CURRENT_SCHEMA_VERSION: i32 = 4;
+
+// ---- Firewall types ----
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct FirewallRule {
+    pub id: String,
+    pub app_id: String,
+    pub app_name: String,
+    pub app_path: Option<String>,
+    pub action: String, // "allow", "deny", "unspecified"
+    pub created_at: u64,
+    pub updated_at: u64,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AppConnectionInfo {
+    pub app_id: String,
+    pub app_name: String,
+    pub app_path: Option<String>,
+    pub first_seen_ms: u64,
+    pub last_seen_ms: u64,
+    pub total_connections: u64,
+    pub is_apple_signed: bool,
+}
 
 // ---- Return types for queries ----
 
@@ -187,6 +211,68 @@ impl Database {
             log::info!("Migration v2 complete");
         }
 
+        if current < 3 {
+            log::info!("Running migration v3 (enrichment columns + session stats)...");
+            conn.execute_batch(
+                "
+                -- Add enrichment columns to connections (ignore if they already exist)
+                ALTER TABLE connections ADD COLUMN asn INTEGER;
+                ALTER TABLE connections ADD COLUMN asn_org TEXT;
+                ALTER TABLE connections ADD COLUMN cloud_provider TEXT;
+                ALTER TABLE connections ADD COLUMN cloud_region TEXT;
+                ALTER TABLE connections ADD COLUMN datacenter TEXT;
+                ALTER TABLE connections ADD COLUMN is_cdn INTEGER NOT NULL DEFAULT 0;
+                ALTER TABLE connections ADD COLUMN network_type TEXT;
+
+                -- Session stats table for tracking cumulative metrics across restarts
+                CREATE TABLE IF NOT EXISTS session_stats (
+                    key TEXT PRIMARY KEY,
+                    value_int INTEGER NOT NULL DEFAULT 0
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_conn_asn ON connections(asn_org);
+                CREATE INDEX IF NOT EXISTS idx_conn_cloud ON connections(cloud_provider);
+
+                INSERT OR REPLACE INTO schema_version (version) VALUES (3);
+                ",
+            )
+            .map_err(|e| format!("Migration v3 failed: {}", e))?;
+            log::info!("Migration v3 complete");
+        }
+
+        if current < 4 {
+            log::info!("Running migration v4 (firewall rules + app connections)...");
+            conn.execute_batch(
+                "
+                CREATE TABLE IF NOT EXISTS firewall_rules (
+                    id TEXT PRIMARY KEY,
+                    app_id TEXT NOT NULL UNIQUE,
+                    app_name TEXT NOT NULL,
+                    app_path TEXT,
+                    action TEXT NOT NULL DEFAULT 'unspecified',
+                    created_at INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000),
+                    updated_at INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
+                );
+                CREATE INDEX IF NOT EXISTS idx_fw_app_id ON firewall_rules(app_id);
+                CREATE INDEX IF NOT EXISTS idx_fw_action ON firewall_rules(action);
+
+                CREATE TABLE IF NOT EXISTS app_connections (
+                    app_id TEXT PRIMARY KEY,
+                    app_name TEXT NOT NULL,
+                    app_path TEXT,
+                    first_seen_ms INTEGER NOT NULL,
+                    last_seen_ms INTEGER NOT NULL,
+                    total_connections INTEGER NOT NULL DEFAULT 0,
+                    is_apple_signed INTEGER NOT NULL DEFAULT 0
+                );
+
+                INSERT OR REPLACE INTO schema_version (version) VALUES (4);
+                ",
+            )
+            .map_err(|e| format!("Migration v4 failed: {}", e))?;
+            log::info!("Migration v4 complete");
+        }
+
         Ok(())
     }
 
@@ -205,8 +291,9 @@ impl Database {
                     "INSERT OR REPLACE INTO connections
                     (id, dest_ip, dest_port, process_name, protocol, dest_lat, dest_lon,
                      domain, city, country, bytes_sent, bytes_received,
-                     first_seen_ms, last_seen_ms, active, ping_ms, is_tracker, tracker_category)
-                    VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)",
+                     first_seen_ms, last_seen_ms, active, ping_ms, is_tracker, tracker_category,
+                     asn, asn_org, cloud_provider, cloud_region, datacenter, is_cdn, network_type)
+                    VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25)",
                 )
                 .map_err(|e| format!("Prepare failed: {}", e))?;
 
@@ -234,7 +321,14 @@ impl Database {
                     c.active,
                     c.ping_ms,
                     c.is_tracker,
-                    c.tracker_category
+                    c.tracker_category,
+                    c.asn,
+                    c.asn_org,
+                    c.cloud_provider,
+                    c.cloud_region,
+                    c.datacenter,
+                    c.is_cdn,
+                    c.network_type
                 ])
                 .map_err(|e| format!("Insert failed: {}", e))?;
                 count += 1;
@@ -374,7 +468,7 @@ impl Database {
                 "SELECT domain, category, total_hits, total_bytes_in + total_bytes_out, last_seen_ms
                  FROM tracker_summary
                  ORDER BY total_hits DESC
-                 LIMIT 20",
+                 LIMIT 500",
             )
             .map_err(|e| format!("Prepare failed: {}", e))?;
 
@@ -397,6 +491,101 @@ impl Database {
             total_bytes_blocked: total_bytes,
             top_domains,
         })
+    }
+
+    // ---- DNS Stats from DB ----
+
+    /// Get cumulative DNS stats for seeding on startup
+    pub fn get_dns_stats_cumulative(&self) -> Result<(u64, u64), String> {
+        let conn = self.conn.lock().unwrap();
+        let (total, blocked): (u64, u64) = conn
+            .query_row(
+                "SELECT COUNT(*), COALESCE(SUM(CASE WHEN is_blocked THEN 1 ELSE 0 END), 0) FROM dns_queries",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap_or((0, 0));
+        Ok((total, blocked))
+    }
+
+    /// Load most recent DNS queries for populating the in-memory log on startup
+    pub fn get_recent_dns_queries(&self, limit: usize) -> Result<Vec<(String, String, Vec<String>, u64, bool)>, String> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT domain, query_type, response_ips, timestamp_ms, is_blocked
+                 FROM dns_queries ORDER BY timestamp_ms DESC LIMIT ?1",
+            )
+            .map_err(|e| format!("Prepare failed: {}", e))?;
+
+        let rows: Vec<(String, String, Vec<String>, u64, bool)> = stmt
+            .query_map(params![limit as i64], |row| {
+                let domain: String = row.get(0)?;
+                let qtype: String = row.get(1)?;
+                let ips_json: Option<String> = row.get(2)?;
+                let ts: u64 = row.get(3)?;
+                let blocked: bool = row.get(4)?;
+                let ips: Vec<String> = ips_json
+                    .and_then(|j| serde_json::from_str(&j).ok())
+                    .unwrap_or_default();
+                Ok((domain, qtype, ips, ts, blocked))
+            })
+            .map_err(|e| format!("Query failed: {}", e))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        Ok(rows)
+    }
+
+    /// Load recent IP→domain mappings from dns_queries for seeding DnsMapping
+    pub fn get_recent_ip_domain_mappings(&self, limit: usize) -> Result<Vec<(String, Vec<String>)>, String> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT domain, response_ips FROM dns_queries
+                 WHERE response_ips IS NOT NULL AND response_ips != '[]'
+                 ORDER BY timestamp_ms DESC LIMIT ?1",
+            )
+            .map_err(|e| format!("Prepare failed: {}", e))?;
+
+        let rows: Vec<(String, Vec<String>)> = stmt
+            .query_map(params![limit as i64], |row| {
+                let domain: String = row.get(0)?;
+                let ips_json: String = row.get(1)?;
+                let ips: Vec<String> = serde_json::from_str(&ips_json).unwrap_or_default();
+                Ok((domain, ips))
+            })
+            .map_err(|e| format!("Query failed: {}", e))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        Ok(rows)
+    }
+
+    // ---- Session stats ----
+
+    pub fn set_session_stat(&self, key: &str, value: i64) -> Result<(), String> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO session_stats (key, value_int) VALUES (?1, ?2)",
+            params![key, value],
+        )
+        .map_err(|e| format!("Set session stat failed: {}", e))?;
+        Ok(())
+    }
+
+    pub fn get_session_stat(&self, key: &str) -> Result<Option<i64>, String> {
+        let conn = self.conn.lock().unwrap();
+        let result = conn.query_row(
+            "SELECT value_int FROM session_stats WHERE key = ?1",
+            params![key],
+            |row| row.get(0),
+        );
+        match result {
+            Ok(v) => Ok(Some(v)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(format!("Get session stat failed: {}", e)),
+        }
     }
 
     // ---- Preferences ----
@@ -537,5 +726,121 @@ impl Database {
 
         log::info!("Loaded {} blocklists from database", result.len());
         Ok(result)
+    }
+
+    // ---- Firewall rules ----
+
+    pub fn get_firewall_rules(&self) -> Result<Vec<FirewallRule>, String> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare("SELECT id, app_id, app_name, app_path, action, created_at, updated_at FROM firewall_rules ORDER BY app_name")
+            .map_err(|e| format!("Prepare failed: {}", e))?;
+
+        let rules = stmt
+            .query_map([], |row| {
+                Ok(FirewallRule {
+                    id: row.get(0)?,
+                    app_id: row.get(1)?,
+                    app_name: row.get(2)?,
+                    app_path: row.get(3)?,
+                    action: row.get(4)?,
+                    created_at: row.get(5)?,
+                    updated_at: row.get(6)?,
+                })
+            })
+            .map_err(|e| format!("Query failed: {}", e))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        Ok(rules)
+    }
+
+    pub fn set_firewall_rule(&self, app_id: &str, app_name: &str, app_path: Option<&str>, action: &str) -> Result<FirewallRule, String> {
+        let conn = self.conn.lock().unwrap();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+
+        // Upsert: update if exists, insert if not
+        let existing_id: Option<String> = conn
+            .query_row("SELECT id FROM firewall_rules WHERE app_id = ?1", params![app_id], |row| row.get(0))
+            .ok();
+
+        let id = existing_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+
+        conn.execute(
+            "INSERT OR REPLACE INTO firewall_rules (id, app_id, app_name, app_path, action, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, COALESCE((SELECT created_at FROM firewall_rules WHERE id = ?1), ?6), ?6)",
+            params![id, app_id, app_name, app_path, action, now],
+        )
+        .map_err(|e| format!("Set firewall rule failed: {}", e))?;
+
+        Ok(FirewallRule {
+            id,
+            app_id: app_id.to_string(),
+            app_name: app_name.to_string(),
+            app_path: app_path.map(String::from),
+            action: action.to_string(),
+            created_at: now,
+            updated_at: now,
+        })
+    }
+
+    pub fn delete_firewall_rule(&self, app_id: &str) -> Result<(), String> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM firewall_rules WHERE app_id = ?1", params![app_id])
+            .map_err(|e| format!("Delete firewall rule failed: {}", e))?;
+        Ok(())
+    }
+
+    // ---- App connections (auto-discovered apps) ----
+
+    pub fn upsert_app_connection(&self, app_id: &str, app_name: &str, app_path: Option<&str>, is_apple: bool) -> Result<(), String> {
+        let conn = self.conn.lock().unwrap();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+
+        conn.execute(
+            "INSERT INTO app_connections (app_id, app_name, app_path, first_seen_ms, last_seen_ms, total_connections, is_apple_signed)
+             VALUES (?1, ?2, ?3, ?4, ?4, 1, ?5)
+             ON CONFLICT(app_id) DO UPDATE SET
+                last_seen_ms = ?4,
+                total_connections = total_connections + 1,
+                app_name = CASE WHEN ?2 != 'unknown' THEN ?2 ELSE app_name END",
+            params![app_id, app_name, app_path, now, is_apple],
+        )
+        .map_err(|e| format!("Upsert app connection failed: {}", e))?;
+        Ok(())
+    }
+
+    pub fn get_app_connections(&self) -> Result<Vec<AppConnectionInfo>, String> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT app_id, app_name, app_path, first_seen_ms, last_seen_ms, total_connections, is_apple_signed
+                 FROM app_connections ORDER BY last_seen_ms DESC",
+            )
+            .map_err(|e| format!("Prepare failed: {}", e))?;
+
+        let apps = stmt
+            .query_map([], |row| {
+                Ok(AppConnectionInfo {
+                    app_id: row.get(0)?,
+                    app_name: row.get(1)?,
+                    app_path: row.get(2)?,
+                    first_seen_ms: row.get(3)?,
+                    last_seen_ms: row.get(4)?,
+                    total_connections: row.get(5)?,
+                    is_apple_signed: row.get::<_, i32>(6)? != 0,
+                })
+            })
+            .map_err(|e| format!("Query failed: {}", e))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        Ok(apps)
     }
 }

@@ -20,9 +20,10 @@
         "resizable": true,
         "fullscreen": false,
         "decorations": true,
-        "transparent": false,
+        "transparent": true,
         "titleBarStyle": "Overlay",
-        "hiddenTitle": true
+        "hiddenTitle": true,
+        "trafficLightPosition": { "x": 20, "y": 25 }
       }
     ],
     "security": {
@@ -34,7 +35,7 @@
     "targets": "all",
     "macOS": {
       "entitlements": "Entitlements.plist",
-      "signingIdentity": "0DC37DDD2017A98417402DE8D82578990E26E2D5"
+      "signingIdentity": "C4F410132A48A802291992B12475312E3CF53124"
     },
     "resources": [
       "resources/*"

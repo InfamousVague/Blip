@@ -96,7 +96,39 @@ private func enableFilter() {
                 return
             }
             neLog("Filter enabled successfully")
-            writeResult("{\"status\":\"active\"}")
+            // Also enable DNS proxy
+            enableDNSProxy()
+        }
+    }
+}
+
+private func enableDNSProxy() {
+    neLog("Enabling NEDNSProxyManager...")
+    let manager = NEDNSProxyManager.shared()
+    manager.loadFromPreferences { error in
+        if let error = error {
+            neLog("DNS proxy load error: \(error)")
+            // DNS proxy is optional — filter still works without it
+            writeResult("{\"status\":\"active\",\"dns_proxy\":false}")
+            return
+        }
+
+        let config = NEDNSProxyProviderProtocol()
+        config.serverAddress = "127.0.0.1" // Required but unused — we handle DNS ourselves
+
+        manager.providerProtocol = config
+        manager.localizedDescription = "Blip DNS Monitor"
+        manager.isEnabled = true
+
+        manager.saveToPreferences { error in
+            if let error = error {
+                neLog("DNS proxy save error: \(error)")
+                // Non-fatal — filter is already active
+                writeResult("{\"status\":\"active\",\"dns_proxy\":false}")
+                return
+            }
+            neLog("DNS proxy enabled successfully")
+            writeResult("{\"status\":\"active\",\"dns_proxy\":true}")
         }
     }
 }
@@ -140,6 +172,16 @@ public func blipNEDeactivate() -> UnsafePointer<CChar>? {
     clearResult()
 
     DispatchQueue.main.async {
+        // Disable DNS proxy first
+        let dnsManager = NEDNSProxyManager.shared()
+        dnsManager.loadFromPreferences { _ in
+            dnsManager.isEnabled = false
+            dnsManager.saveToPreferences { _ in
+                neLog("DNS proxy disabled")
+            }
+        }
+
+        // Disable filter
         let manager = NEFilterManager.shared()
         manager.loadFromPreferences { error in
             if let error = error {
@@ -183,8 +225,17 @@ public func blipNEStatus() -> UnsafePointer<CChar>? {
                 neLog("No provider config — not installed")
                 writeResult("{\"status\":\"not_installed\"}")
             } else if manager.isEnabled {
-                neLog("Filter is active")
-                writeResult("{\"status\":\"active\"}")
+                // Check DNS proxy status — auto-enable if filter is active but DNS proxy isn't
+                let dnsManager = NEDNSProxyManager.shared()
+                dnsManager.loadFromPreferences { _ in
+                    if dnsManager.isEnabled {
+                        neLog("Filter is active, DNS proxy: true")
+                        writeResult("{\"status\":\"active\",\"dns_proxy\":true}")
+                    } else {
+                        neLog("Filter is active but DNS proxy is off — enabling it")
+                        enableDNSProxy()
+                    }
+                }
             } else {
                 neLog("Filter is inactive")
                 writeResult("{\"status\":\"inactive\"}")

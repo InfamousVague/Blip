@@ -1,3 +1,5 @@
+pub mod updater;
+
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
@@ -80,16 +82,50 @@ impl BlocklistStore {
             .collect()
     }
 
-    /// Check if a domain is blocked by any enabled list
+    /// Check if a domain is blocked by any enabled list.
+    /// Supports subdomain matching: "ad.tracker.com" matches blocklist entry "tracker.com".
     pub fn is_blocked(&self, domain: &str) -> bool {
         let domain_lower = domain.to_lowercase();
         let lists = self.lists.lock().unwrap();
         for entry in lists.values() {
-            if entry.info.enabled && entry.domains.contains(&domain_lower) {
+            if !entry.info.enabled {
+                continue;
+            }
+            // Exact match
+            if entry.domains.contains(&domain_lower) {
                 return true;
+            }
+            // Subdomain match: walk up the domain parts
+            let mut d = domain_lower.as_str();
+            while let Some(dot_pos) = d.find('.') {
+                d = &d[dot_pos + 1..];
+                if entry.domains.contains(d) {
+                    return true;
+                }
             }
         }
         false
+    }
+
+    /// Replace domains for an existing blocklist (used during update).
+    pub fn update_domains(&self, id: &str, domains: std::collections::HashSet<String>) {
+        let mut lists = self.lists.lock().unwrap();
+        if let Some(entry) = lists.get_mut(id) {
+            entry.info.domain_count = domains.len();
+            entry.domains = domains;
+        }
+    }
+
+    /// Returns all blocked domains from all enabled lists (for NE sync).
+    pub fn all_blocked_domains(&self) -> Vec<String> {
+        let lists = self.lists.lock().unwrap();
+        let mut all = Vec::new();
+        for entry in lists.values() {
+            if entry.info.enabled {
+                all.extend(entry.domains.iter().cloned());
+            }
+        }
+        all
     }
 
     /// Returns the name of the blocklist that blocked this domain, if any.
@@ -97,12 +133,27 @@ impl BlocklistStore {
         let domain_lower = domain.to_lowercase();
         let lists = self.lists.lock().unwrap();
         for entry in lists.values() {
-            if entry.info.enabled && entry.domains.contains(&domain_lower) {
+            if !entry.info.enabled {
+                continue;
+            }
+            if entry.domains.contains(&domain_lower) {
                 return Some(entry.info.name.clone());
+            }
+            let mut d = domain_lower.as_str();
+            while let Some(dot_pos) = d.find('.') {
+                d = &d[dot_pos + 1..];
+                if entry.domains.contains(d) {
+                    return Some(entry.info.name.clone());
+                }
             }
         }
         None
     }
+}
+
+/// Auto-detect format and parse domains (public for updater)
+pub fn parse_auto_pub(content: &str) -> HashSet<String> {
+    parse_auto(content)
 }
 
 /// Auto-detect format and parse domains

@@ -313,6 +313,10 @@ impl Enricher {
         }
     }
 
+    pub fn has_asn_db(&self) -> bool {
+        self.asn_reader.is_some()
+    }
+
     pub fn new(resource_dir: &Path) -> Result<Self, String> {
         let mmdb_path = resource_dir.join("dbip-asn.mmdb");
         let asn_reader = Reader::open_readfile(&mmdb_path)
@@ -508,12 +512,9 @@ impl Enricher {
             }
         }
 
-        // Datacenter inference from reverse DNS (best-effort)
-        if result.datacenter.is_none() {
-            if let Some(dc) = Self::infer_datacenter_from_rdns(ip) {
-                result.datacenter = Some(dc);
-            }
-        }
+        // NOTE: Datacenter inference from reverse DNS removed from synchronous path.
+        // dns_lookup::lookup_addr() is a blocking system call that can stall 100-500ms.
+        // Datacenter inference now happens in the background DNS resolution task (nettop.rs).
 
         result
     }

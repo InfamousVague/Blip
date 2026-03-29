@@ -81,6 +81,7 @@ swiftc \
     -module-name BlipNetworkExtension \
     -o "$NE_BUILD_DIR/com.infamousvague.blip.network-extension" \
     "$NE_DIR/Sources/BlipFilterProvider.swift" \
+    "$NE_DIR/Sources/BlipDNSProvider.swift" \
     "$NE_DIR/Sources/SocketBridge.swift" \
     "$NE_DIR/Sources/main.swift"
 

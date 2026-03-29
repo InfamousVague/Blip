@@ -28,8 +28,13 @@ class BlipDNSProvider: NEDNSProxyProvider {
 
     override func startProxy(options: [String: Any]? = nil, completionHandler: @escaping (Error?) -> Void) {
         os_log("Starting DNS proxy", log: log, type: .info)
+        neDebugLog("BlipDNSProvider: startProxy called")
+
+        // Load cached blocklist from disk immediately so blocking works before socket connects
+        loadPersistedBlocklist()
 
         socketBridge = SocketBridge()
+        socketBridge?.delegate = self
         socketBridge?.connect()
 
         completionHandler(nil)
@@ -190,16 +195,53 @@ class BlipDNSProvider: NEDNSProxyProvider {
 
     func updateBlockedDomains(_ domains: Set<String>) {
         blockedDomainsLock.lock()
-        blockedDomains = domains
+        blockedDomains.formUnion(domains)
+        let count = blockedDomains.count
         blockedDomainsLock.unlock()
+        neDebugLog("Blocklist updated: now \(count) domains (added \(domains.count) in this chunk)")
+
+        // Persist to disk so blocking works even without the app
+        persistBlocklist()
+    }
+
+    /// Save blocklist to disk for offline blocking
+    private func persistBlocklist() {
+        blockedDomainsLock.lock()
+        let domains = blockedDomains
+        blockedDomainsLock.unlock()
+
+        let path = "/private/var/tmp/blip-blocklist-cache.txt"
+        let content = domains.joined(separator: "\n")
+        try? content.write(toFile: path, atomically: true, encoding: .utf8)
+    }
+
+    /// Load blocklist from disk cache (called on startup before socket connects)
+    func loadPersistedBlocklist() {
+        let path = "/private/var/tmp/blip-blocklist-cache.txt"
+        guard let content = try? String(contentsOfFile: path, encoding: .utf8) else { return }
+        let domains = Set(content.split(separator: "\n").map { String($0) })
+        if domains.isEmpty { return }
+
+        blockedDomainsLock.lock()
+        blockedDomains.formUnion(domains)
+        let count = blockedDomains.count
+        blockedDomainsLock.unlock()
+        neDebugLog("Loaded \(count) domains from disk cache")
     }
 
     private func isDomainBlocked(_ domain: String) -> Bool {
         let lower = domain.lowercased()
         blockedDomainsLock.lock()
-        let blocked = blockedDomains.contains(lower)
-        blockedDomainsLock.unlock()
-        return blocked
+        defer { blockedDomainsLock.unlock() }
+        // Exact match
+        if blockedDomains.contains(lower) { return true }
+        // Subdomain match: "ad.tracker.com" matches "tracker.com"
+        var d = lower
+        while let dotIdx = d.firstIndex(of: ".") {
+            d = String(d[d.index(after: dotIdx)...])
+            if blockedDomains.contains(d) { return true }
+        }
+        return false
     }
 
     // MARK: - DNS Parsing Helpers
@@ -407,5 +449,21 @@ class BlipDNSProvider: NEDNSProxyProvider {
 
         let path = String(cString: pathBuffer)
         return path.components(separatedBy: "/").last
+    }
+}
+
+// MARK: - SocketBridgeDelegate
+
+extension BlipDNSProvider: SocketBridgeDelegate {
+    func socketBridge(_ bridge: SocketBridge, didReceiveBlocklistSync domains: Set<String>) {
+        updateBlockedDomains(domains)
+    }
+
+    func socketBridge(_ bridge: SocketBridge, didReceiveBlockedIPs ips: Set<String>) {
+        // DNS proxy doesn't use IP blocking — that's for the filter provider
+    }
+
+    func socketBridge(_ bridge: SocketBridge, didReceiveFirewallRules rules: [FirewallRule]) {
+        // DNS proxy doesn't use firewall rules — that's for the filter provider
     }
 }

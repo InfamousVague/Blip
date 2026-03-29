@@ -29,7 +29,11 @@ import { Settings } from "./components/Settings";
 import { SetupPrompt } from "./components/SetupPrompt";
 import { TrackerStats } from "./components/TrackerStats";
 import { DnsLog } from "./components/DnsLog";
+import { FirewallContent } from "./components/FirewallSidebar";
 import { useDnsCapture } from "./hooks/useDnsCapture";
+import { useFirewallRules } from "./hooks/useFirewallRules";
+import { SegmentedControl } from "@mattmattmattmatt/base/primitives/segmented-control/SegmentedControl";
+import "@mattmattmattmatt/base/primitives/segmented-control/segmented-control.css";
 import { flame } from "@mattmattmattmatt/base/primitives/icon/icons/flame";
 import { activity } from "@mattmattmattmatt/base/primitives/icon/icons/activity";
 import { shieldCheck } from "@mattmattmattmatt/base/primitives/icon/icons/shield-check";
@@ -47,54 +51,32 @@ let cachedLocation: Location | null = null;
 
 async function getLocation(forceRefresh = false): Promise<Location> {
   if (cachedLocation && !forceRefresh) return cachedLocation;
-  if ("__TAURI__" in window) {
-    try {
-      const { getCurrentPosition, requestPermissions, checkPermissions } =
-        await import("@tauri-apps/plugin-geolocation");
-      let perms = await checkPermissions();
-      if (perms.location === "prompt" || perms.location === "prompt-with-rationale") {
-        perms = await requestPermissions(["location"]);
-      }
-      if (perms.location === "granted") {
-        const pos = await getCurrentPosition();
-        cachedLocation = { longitude: pos.coords.longitude, latitude: pos.coords.latitude, source: "tauri" };
-        return cachedLocation;
-      }
-      console.warn("Tauri geolocation denied:", perms.location);
-    } catch (e) {
-      console.warn("Tauri geolocation failed:", e);
-    }
-  }
 
+  // Try native bridge first (non-blocking, single attempt)
   try {
-    const loc = await new Promise<Location>((resolve, reject) => {
-      if (!navigator.geolocation) { reject(new Error("Geolocation not supported")); return; }
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          cachedLocation = { longitude: pos.coords.longitude, latitude: pos.coords.latitude, source: "browser" };
-          resolve(cachedLocation);
-        },
-        (err) => reject(err),
-        { enableHighAccuracy: false, timeout: 5000 }
-      );
-    });
-    return loc;
-  } catch (e) {
-    console.warn("Browser geolocation failed:", e);
-  }
-
-  // Use Tauri backend for IP geolocation (avoids CORS/ATS issues in production)
-  try {
-    const loc = await invoke<{ latitude: number; longitude: number; ip: string }>("get_user_location");
+    const loc = await invoke<{ latitude: number; longitude: number }>("get_user_location");
     if (loc.latitude && loc.longitude) {
-      cachedLocation = { ...loc, source: "ip" };
+      cachedLocation = { ...loc, source: "native" };
       return cachedLocation;
     }
-  } catch (e) {
-    console.warn("Tauri IP geolocation failed:", e);
+  } catch {
+    // Native location not available yet
   }
 
-  throw new Error("All geolocation methods failed");
+  // Try browser geolocation
+  try {
+    const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
+      if (!navigator.geolocation) { reject(new Error("No geolocation")); return; }
+      navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: false, timeout: 3000 });
+    });
+    cachedLocation = { longitude: pos.coords.longitude, latitude: pos.coords.latitude, source: "browser" };
+    return cachedLocation;
+  } catch {
+    // Browser geolocation failed
+  }
+
+  // Fallback: center of US (the map still works, just not centered on user)
+  return { longitude: -98.5, latitude: 39.8, source: "fallback" };
 }
 
 function App() {
@@ -109,6 +91,7 @@ function App() {
   const [showSetup, setShowSetup] = useState(false);
   const [showHeatmap, setShowHeatmap] = useState(false);
   const [showParticles, setShowParticles] = useState(true);
+  const [mode, setMode] = useState<"network" | "firewall">("network");
   const [sidebarTab, setSidebarTab] = useState<"network" | "trackers" | "dns">("network");
   const [historicalEndpoints, setHistoricalEndpoints] = useState<HistoricalEndpoint[]>([]);
   const [selfInfo, setSelfInfo] = useState<SelfIpInfo | null>(null);
@@ -119,22 +102,23 @@ function App() {
   });
   const setupTriggered = useRef(false);
 
-  const { connections, totalEver, capturing, startCapture, stopCapture } = useNetworkCapture();
+  const { connections, totalEver, capturing, startCapture, stopCapture } = useNetworkCapture(sidebarTab);
 
   const userPos: [number, number] | null = location
     ? [location.longitude, location.latitude]
     : null;
 
-  const { arcs, endpoints, particles } = useArcAnimation(connections, userPos);
+  const { log: dnsLog, stats: dnsStats, blockedAttempts } = useDnsCapture(sidebarTab === "dns");
+  const { arcs, endpoints, particles, blockedMarkers } = useArcAnimation(connections, userPos, dnsStats.blocked_count, blockedAttempts);
   const bandwidth = useBandwidth(capturing);
-  const { log: dnsLog, stats: dnsStats } = useDnsCapture();
+  const { apps: firewallApps, setRule: setFirewallRule } = useFirewallRules();
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     getLocation()
       .then((loc) => {
         setLocation(loc);
         setViewState((v) => ({ ...v, longitude: loc.longitude, latitude: loc.latitude, zoom: 4.5 }));
-        startCapture();
       })
       .catch((err) => console.warn("Location unavailable:", err));
 
@@ -165,7 +149,7 @@ function App() {
         }
       })
       .catch(() => {});
-  }, [startCapture]);
+  }, []); // Run once on mount — do NOT depend on startCapture
 
   // Show setup prompt once, 3s after first connections appear
   useEffect(() => {
@@ -209,6 +193,14 @@ function App() {
     startTransition(() => setSelectedEndpoint(ep));
   }, []);
 
+  // Offset map center to account for topbar + sidebar
+  useEffect(() => {
+    const map = mapRef.current?.getMap();
+    if (map) {
+      map.setPadding({ top: 48, right: sidebarWidth + 16, bottom: 0, left: 0 });
+    }
+  }, [sidebarWidth]);
+
   const handleMapClick = useCallback(() => {
     setSelectedId(null);
     startTransition(() => setSelectedEndpoint(null));
@@ -217,7 +209,33 @@ function App() {
 
   return (
     <div className="app" style={{ "--sidebar-width": `${sidebarWidth}px` } as React.CSSProperties}>
-      <div className="titlebar" onMouseDown={() => getCurrentWindow().startDragging()} />
+      {/* Dark glassmorphism topbar */}
+      <div className="topbar" onMouseDown={() => getCurrentWindow().startDragging()}>
+        <div className="topbar__left">
+          <span className="topbar__isp">{selfInfo?.isp ?? "Unknown ISP"}</span>
+          {selfInfo?.network_type && (
+            <span className="topbar__badge">{selfInfo.network_type}</span>
+          )}
+          <span className="topbar__sep" />
+          <span className="topbar__meta">{location?.ip ?? "—"}</span>
+          <span className="topbar__sep" />
+          <span className="topbar__meta">
+            {location ? `${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}` : "Locating..."}
+          </span>
+        </div>
+        <div className="topbar__right">
+          <SegmentedControl
+            options={[
+              { value: "network", label: "Network" },
+              { value: "firewall", label: "Firewall" },
+            ]}
+            value={mode}
+            onChange={(v) => setMode(v as "network" | "firewall")}
+            size="md"
+          />
+        </div>
+      </div>
+
       <Map
         ref={mapRef}
         {...viewState}
@@ -235,8 +253,8 @@ function App() {
           </Marker>
         )}
 
-        <NetworkArcLayer arcs={arcs} particles={particles} showParticles={showParticles} />
-        {showHeatmap && <HeatmapLayer endpoints={endpoints} historicalEndpoints={historicalEndpoints} visible={showHeatmap} />}
+        <NetworkArcLayer arcs={arcs} particles={particles} blockedMarkers={blockedMarkers} showParticles={showParticles} />
+        <HeatmapLayer initialEndpoints={historicalEndpoints} visible={showHeatmap} />
         <EndpointLayer
           endpoints={endpoints}
           zoom={viewState.zoom}
@@ -245,63 +263,48 @@ function App() {
         />
       </Map>
 
-      <Sidebar onWidthChange={setSidebarWidth}>
-        {selectedEndpoint ? (
-          <EndpointDetail
-            endpoint={selectedEndpoint}
-            connections={connections}
-            bandwidth={bandwidth}
-            onBack={() => { setSelectedId(null); startTransition(() => setSelectedEndpoint(null)); }}
-          />
-        ) : (
-          <>
-            <div className="sidebar-tabs">
-              <button className={`sidebar-tab${sidebarTab === "network" ? " sidebar-tab--active" : ""}`} onClick={() => setSidebarTab("network")}>
-                <Icon icon={activity} size="xs" />
-                Network
-              </button>
-              <button className={`sidebar-tab${sidebarTab === "trackers" ? " sidebar-tab--active" : ""}`} onClick={() => setSidebarTab("trackers")}>
-                <Icon icon={shieldCheck} size="xs" />
-                Trackers
-              </button>
-              <button className={`sidebar-tab${sidebarTab === "dns" ? " sidebar-tab--active" : ""}`} onClick={() => setSidebarTab("dns")}>
-                <Icon icon={globe} size="xs" />
-                DNS
-              </button>
-            </div>
-            {sidebarTab === "network" ? (
-              <GlobalStats connections={connections} totalEver={totalEver} bandwidth={bandwidth} />
-            ) : sidebarTab === "trackers" ? (
-              <TrackerStats visible={sidebarTab === "trackers"} />
-            ) : (
-              <DnsLog log={dnsLog} stats={dnsStats} />
-            )}
-          </>
-        )}
-      </Sidebar>
+      <Sidebar
+        mode={mode}
+        onWidthChange={setSidebarWidth}
+        networkContent={
+          selectedEndpoint ? (
+            <EndpointDetail
+              endpoint={selectedEndpoint}
+              connections={connections}
+              bandwidth={bandwidth}
+              onBack={() => { setSelectedId(null); startTransition(() => setSelectedEndpoint(null)); }}
+            />
+          ) : (
+            <>
+              <div className="sidebar-tabs">
+                <button className={`sidebar-tab${sidebarTab === "network" ? " sidebar-tab--active" : ""}`} onClick={() => setSidebarTab("network")}>
+                  <Icon icon={activity} size="xs" />
+                  Network
+                </button>
+                <button className={`sidebar-tab${sidebarTab === "trackers" ? " sidebar-tab--active" : ""}`} onClick={() => setSidebarTab("trackers")}>
+                  <Icon icon={shieldCheck} size="xs" />
+                  Trackers
+                </button>
+                <button className={`sidebar-tab${sidebarTab === "dns" ? " sidebar-tab--active" : ""}`} onClick={() => setSidebarTab("dns")}>
+                  <Icon icon={globe} size="xs" />
+                  DNS
+                </button>
+              </div>
+              {sidebarTab === "network" ? (
+                <GlobalStats connections={connections} totalEver={totalEver} bandwidth={bandwidth} />
+              ) : sidebarTab === "trackers" ? (
+                <TrackerStats visible={sidebarTab === "trackers"} />
+              ) : (
+                <DnsLog log={dnsLog} stats={dnsStats} />
+              )}
+            </>
+          )
+        }
+        firewallContent={
+          <FirewallContent apps={firewallApps} onSetRule={setFirewallRule} connections={connections} />
+        }
+      />
 
-      <div className="location-bar">
-        <div className="location-bar__row">
-          <span className="location-bar__isp">{selfInfo?.isp ?? "Unknown ISP"}</span>
-          {selfInfo?.network_type && (
-            <span className="location-bar__badge">{selfInfo.network_type}</span>
-          )}
-        </div>
-        <div className="location-bar__row">
-          <span className="location-bar__item">{location?.ip ?? "—"}</span>
-          <span className="location-bar__sep" />
-          <span className="location-bar__item">
-            {location ? `${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}` : "Locating..."}
-          </span>
-        </div>
-        {capturing && (
-          <div className="location-bar__row">
-            <span className="location-bar__item location-bar__active">
-              <NumberRoll value={arcs.length} minDigits={1} fontSize="var(--text-sm-size)" duration={300} /> connections
-            </span>
-          </div>
-        )}
-      </div>
 
       {elevationBanner && (
         <div className="elevation-banner">
@@ -345,12 +348,8 @@ function App() {
       <Settings open={settingsOpen} onClose={() => setSettingsOpen(false)} themeIndex={themeIndex} onThemeChange={(i) => { setThemeIndex(i); localStorage.setItem("blip-map-theme", String(i)); }} />
 
       {showSetup && (
-        <SetupPrompt onComplete={(elevated) => {
+        <SetupPrompt onComplete={() => {
           setShowSetup(false);
-          if (elevated) {
-            // Restart capture to pick up elevated flag
-            stopCapture().then(() => startCapture());
-          }
         }} />
       )}
     </div>

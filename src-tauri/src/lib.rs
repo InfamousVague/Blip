@@ -25,7 +25,7 @@ use dns_capture::DnsCaptureManager;
 use enrichment::Enricher;
 use geoip::GeoIp;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock as StdRwLock};
 use tauri::Manager;
 use tokio::sync::RwLock;
 
@@ -40,6 +40,7 @@ struct AppState {
     enricher: Arc<Mutex<Enricher>>,
     dns_mapping: Arc<RwLock<DnsMapping>>,
     dns_capture: Arc<tokio::sync::Mutex<Option<DnsCaptureManager>>>,
+    geoip: Arc<StdRwLock<Option<Arc<GeoIp>>>>,
 }
 
 /// Returns current interface byte counters (cumulative)
@@ -72,10 +73,10 @@ async fn get_bandwidth() -> Result<(u64, u64), String> {
     Ok((total_in, total_out))
 }
 
-/// Returns all current connections — frontend polls this
+/// Returns all current connections — used for initial load
 #[tauri::command]
 fn get_connections(state: tauri::State<AppState>) -> CaptureSnapshot {
-    let store = state.store.lock().unwrap();
+    let store = state.store.read().unwrap();
     let snapshot = CaptureSnapshot {
         connections: store.connections.values().cloned().collect(),
         total_ever: store.total_ever,
@@ -86,6 +87,35 @@ fn get_connections(state: tauri::State<AppState>) -> CaptureSnapshot {
         snapshot.total_ever
     );
     snapshot
+}
+
+/// Delta response for incremental polling
+#[derive(serde::Serialize)]
+struct ConnectionsDelta {
+    generation: u64,
+    updated: Vec<capture::types::ResolvedConnection>,
+    removed: Vec<String>,
+    total_ever: usize,
+}
+
+/// Returns only connections that changed since the given generation
+#[tauri::command]
+fn get_connections_delta(state: tauri::State<AppState>, since: u64) -> ConnectionsDelta {
+    let store = state.store.read().unwrap();
+    let updated: Vec<_> = store.changed_ids.iter()
+        .filter(|(_, &gen)| gen > since)
+        .filter_map(|(id, _)| store.connections.get(id).cloned())
+        .collect();
+    let removed: Vec<_> = store.removed_ids.iter()
+        .filter(|(_, gen)| *gen > since)
+        .map(|(id, _)| id.clone())
+        .collect();
+    ConnectionsDelta {
+        generation: store.generation,
+        updated,
+        removed,
+        total_ever: store.total_ever,
+    }
 }
 
 #[tauri::command]
@@ -105,6 +135,8 @@ fn start_capture(app: tauri::AppHandle, state: tauri::State<AppState>) {
     let dns_capture = state.dns_capture.clone();
     let blocklists_for_dns = state.blocklists.clone();
     let db_writer_for_dns = state.db_writer.clone();
+    let db_for_seed = state.db.clone();
+    let geoip_slot = state.geoip.clone();
 
     let resource_path = app
         .path()
@@ -141,6 +173,12 @@ fn start_capture(app: tauri::AppHandle, state: tauri::State<AppState>) {
         };
         log::info!("GeoIP database loaded successfully");
 
+        // Store in AppState so commands can access it
+        {
+            let mut slot = geoip_slot.write().unwrap();
+            *slot = Some(geoip.clone());
+        }
+
         let dns = Arc::new(DnsCache::new());
 
         // Start DNS capture if elevated
@@ -175,6 +213,7 @@ fn start_capture(app: tauri::AppHandle, state: tauri::State<AppState>) {
             db_writer.clone(),
             dns_mapping.clone(),
             enricher.clone(),
+            db_for_seed.clone(),
         ).await {
             log::warn!("NE bridge failed to start (continuing without): {}", e);
         }
@@ -182,7 +221,83 @@ fn start_capture(app: tauri::AppHandle, state: tauri::State<AppState>) {
         // Start auto-diagnostics that write snapshots every 5s
         start_auto_diagnostics(store.clone());
 
+        // Start blocklist auto-updater (checks every 6 hours)
+        {
+            let bl = blocklists.clone();
+            let db = db_writer.clone(); // we need the db, not db_writer
+            // We can't access db directly here, so use a separate approach
+            // The updater needs the Database, not DbWriter
+            tokio::spawn(async move {
+                // Wait 60s before first check to let app finish loading
+                tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+                log::info!("Blocklist auto-updater started (6h interval)");
+                loop {
+                    tokio::time::sleep(tokio::time::Duration::from_secs(6 * 3600)).await;
+                    let lists = bl.get_all();
+                    let mut updated = 0u32;
+                    for list in &lists {
+                        if !list.enabled || list.source_url == "file" || list.source_url.is_empty() {
+                            continue;
+                        }
+                        match reqwest::get(&list.source_url).await {
+                            Ok(resp) => match resp.text().await {
+                                Ok(content) => {
+                                    let new_domains = crate::blocklist::parse_auto_pub(&content);
+                                    bl.update_domains(&list.id, new_domains);
+                                    updated += 1;
+                                    log::info!("Updated blocklist: {}", list.name);
+                                }
+                                Err(e) => log::warn!("Failed to read blocklist '{}': {}", list.name, e),
+                            },
+                            Err(e) => log::warn!("Failed to download blocklist '{}': {}", list.name, e),
+                        }
+                    }
+                    if updated > 0 {
+                        log::info!("Blocklist auto-update: {} lists refreshed", updated);
+                    }
+                }
+            });
+        }
+
         log::info!("Enricher ready");
+
+        // Seed total_ever from historical DB count so stats persist across restarts
+        if let Ok(stats) = db_for_seed.get_historical_stats() {
+            let mut state = store.write().unwrap();
+            state.total_ever = stats.total_connections as usize;
+            log::info!("Seeded total_ever from DB: {}", state.total_ever);
+        }
+
+        // Seed DNS stats from DB so counters persist across restarts
+        if let Ok((total, blocked)) = db_for_seed.get_dns_stats_cumulative() {
+            let mut mapping = dns_mapping.write().await;
+            mapping.total_queries = total;
+            mapping.blocked_count = blocked;
+            log::info!("Seeded DNS stats from DB: {} queries, {} blocked", total, blocked);
+        }
+
+        // Seed DNS IP→domain mappings from recent queries so tracker detection works immediately
+        if let Ok(rows) = db_for_seed.get_recent_ip_domain_mappings(10000) {
+            let mut mapping = dns_mapping.write().await;
+            let count = rows.len();
+            for (domain, ips) in rows {
+                let event = crate::dns_capture::types::DnsEvent {
+                    domain,
+                    ips,
+                    query_type: "A".to_string(),
+                    ts: 0,
+                };
+                // Use record() but we'll fix the counters after
+                mapping.record(&event, false, None);
+            }
+            // Reset counters back to DB values (record() incremented them)
+            if let Ok((total, blocked)) = db_for_seed.get_dns_stats_cumulative() {
+                mapping.total_queries = total;
+                mapping.blocked_count = blocked;
+            }
+            log::info!("Seeded {} IP→domain mappings from DB", count);
+        }
+
         nettop::start_capture(store, geoip, dns, running, elevated, db_writer, blocklists, enricher, dns_mapping).await;
     });
 }
@@ -240,7 +355,10 @@ async fn request_elevation(state: tauri::State<'_, AppState>) -> Result<bool, St
                         return;
                     }
                     let exe = std::env::current_exe().unwrap_or_default();
-                    let resource_dir = exe.parent().unwrap_or(std::path::Path::new(".")).join("resources");
+                    let mac_os_dir = exe.parent().unwrap_or(std::path::Path::new("."));
+                    let resource_dir = mac_os_dir.parent()
+                        .map(|contents| contents.join("Resources").join("resources"))
+                        .unwrap_or_else(|| mac_os_dir.join("resources"));
                     let helper_path = resource_dir.join("blip-dns-helper");
                     if !helper_path.exists() {
                         log::warn!("blip-dns-helper not found at {:?} after elevation", helper_path);
@@ -596,45 +714,253 @@ async fn deactivate_network_extension(app: tauri::AppHandle) -> Result<String, S
 
 #[tauri::command]
 async fn get_network_extension_status(app: tauri::AppHandle) -> Result<String, String> {
-    // Check if the NE dylib is available (production build)
-    let dylib_available = find_resource(&app, "libblip_ne_bridge.dylib").is_some();
-    if !dylib_available {
-        log::info!("NE status: dylib not found, returning unavailable");
-        return Ok("{\"status\":\"unavailable\"}".into());
+    // Try the dylib first (most reliable — queries NEFilterManager directly)
+    let app_clone = app.clone();
+    let dylib_result = tokio::task::spawn_blocking(move || {
+        call_ne_bridge_fire(&app_clone, "blip_ne_status")
+    })
+    .await;
+
+    if let Ok(Ok(_)) = dylib_result {
+        // Poll for result with short timeout
+        match tokio::time::timeout(
+            tokio::time::Duration::from_secs(3),
+            poll_ne_result(3000),
+        )
+        .await
+        {
+            Ok(Ok(result)) => return Ok(result),
+            _ => {}
+        }
     }
 
-    // Check for a result file from a previous activation
-    let result_path = dirs::home_dir()
+    // Fallback: check if the NE socket is connected (NE is running and sending data)
+    let socket_path = dirs::home_dir()
         .unwrap_or_default()
         .join(".blip")
-        .join("ne-result.json");
-    if let Ok(content) = tokio::fs::read_to_string(&result_path).await {
-        let content = content.trim().to_string();
-        if !content.is_empty() && content.contains("status") {
-            log::info!("NE status from result file: {}", content);
-            return Ok(content);
-        }
+        .join("ne.sock");
+    if socket_path.exists() {
+        // Socket exists — check if NE has connected by looking at logs
+        return Ok("{\"status\":\"not_installed\"}".into());
     }
 
-    // Check if the system extension is registered via systemextensionsctl
-    let output = tokio::process::Command::new("systemextensionsctl")
-        .arg("list")
-        .output()
-        .await;
-
-    if let Ok(output) = output {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        log::info!("systemextensionsctl output: {}", stdout.chars().take(500).collect::<String>());
-        if stdout.contains("com.infamousvague.blip.network-extension") {
-            if stdout.contains("[activated enabled]") {
-                return Ok("{\"status\":\"active\"}".into());
-            }
-            return Ok("{\"status\":\"inactive\"}".into());
-        }
-    }
-
-    log::info!("NE status: not_installed (dylib available, ready to enable)");
     Ok("{\"status\":\"not_installed\"}".into())
+}
+
+// ---- Firewall commands ----
+
+#[tauri::command]
+async fn get_firewall_rules(state: tauri::State<'_, AppState>) -> Result<Vec<db::FirewallRule>, String> {
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || db.get_firewall_rules())
+        .await
+        .map_err(|e| format!("Task error: {}", e))?
+}
+
+#[tauri::command]
+async fn set_firewall_rule(
+    state: tauri::State<'_, AppState>,
+    app_id: String,
+    app_name: String,
+    app_path: Option<String>,
+    action: String,
+) -> Result<db::FirewallRule, String> {
+    let db = state.db.clone();
+    let rule = tokio::task::spawn_blocking(move || {
+        db.set_firewall_rule(&app_id, &app_name, app_path.as_deref(), &action)
+    })
+    .await
+    .map_err(|e| format!("Task error: {}", e))??;
+
+    // Sync all rules to NE
+    sync_firewall_rules_to_ne(&state).await;
+
+    Ok(rule)
+}
+
+#[tauri::command]
+async fn delete_firewall_rule(state: tauri::State<'_, AppState>, app_id: String) -> Result<(), String> {
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || db.delete_firewall_rule(&app_id))
+        .await
+        .map_err(|e| format!("Task error: {}", e))??;
+
+    sync_firewall_rules_to_ne(&state).await;
+    Ok(())
+}
+
+#[tauri::command]
+async fn get_app_list(state: tauri::State<'_, AppState>) -> Result<Vec<db::AppConnectionInfo>, String> {
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || db.get_app_connections())
+        .await
+        .map_err(|e| format!("Task error: {}", e))?
+}
+
+#[tauri::command]
+async fn get_firewall_mode(state: tauri::State<'_, AppState>) -> Result<String, String> {
+    let db = state.db.clone();
+    let mode = tokio::task::spawn_blocking(move || db.get_preference("firewall_mode"))
+        .await
+        .map_err(|e| format!("Task error: {}", e))??;
+    Ok(mode.unwrap_or_else(|| "silent_allow".to_string()))
+}
+
+#[tauri::command]
+async fn set_firewall_mode(state: tauri::State<'_, AppState>, mode: String) -> Result<(), String> {
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || db.set_preference("firewall_mode", &mode))
+        .await
+        .map_err(|e| format!("Task error: {}", e))?
+}
+
+#[tauri::command]
+async fn export_firewall_rules(state: tauri::State<'_, AppState>) -> Result<String, String> {
+    let db = state.db.clone();
+    let rules = tokio::task::spawn_blocking(move || db.get_firewall_rules())
+        .await
+        .map_err(|e| format!("Task error: {}", e))??;
+    serde_json::to_string_pretty(&rules).map_err(|e| format!("Serialize error: {}", e))
+}
+
+#[tauri::command]
+async fn import_firewall_rules(state: tauri::State<'_, AppState>, json: String) -> Result<usize, String> {
+    let rules: Vec<db::FirewallRule> = serde_json::from_str(&json)
+        .map_err(|e| format!("Invalid JSON: {}", e))?;
+    let count = rules.len();
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        for rule in &rules {
+            db.set_firewall_rule(&rule.app_id, &rule.app_name, rule.app_path.as_deref(), &rule.action)?;
+        }
+        Ok::<(), String>(())
+    })
+    .await
+    .map_err(|e| format!("Task error: {}", e))??;
+
+    sync_firewall_rules_to_ne(&state).await;
+    Ok(count)
+}
+
+/// Helper: sync all firewall rules to NE via socket bridge
+async fn sync_firewall_rules_to_ne(state: &AppState) {
+    let db = state.db.clone();
+    if let Ok(rules) = tokio::task::spawn_blocking(move || db.get_firewall_rules()).await {
+        if let Ok(rules) = rules {
+            // Write the rules as JSON to the NE socket — the NE bridge will pick them up
+            // For now, store them so the NE bridge sends them on next connect
+            let _ = state.db.set_preference(
+                "firewall_rules_json",
+                &serde_json::to_string(&rules.iter().map(|r| {
+                    serde_json::json!({"app_id": r.app_id, "action": r.action})
+                }).collect::<Vec<_>>()).unwrap_or_default(),
+            );
+            log::info!("Firewall rules synced: {} rules", rules.len());
+        }
+    }
+}
+
+// ---- App icon resolution ----
+
+#[tauri::command]
+async fn get_app_icons(bundle_ids: Vec<String>) -> Result<std::collections::HashMap<String, String>, String> {
+    tokio::task::spawn_blocking(move || {
+        let mut result = std::collections::HashMap::new();
+        let cache_dir = dirs::home_dir()
+            .unwrap_or_default()
+            .join(".blip/icon-cache");
+        let _ = std::fs::create_dir_all(&cache_dir);
+
+        // Known aliases: CLI tools → parent app icons
+        let aliases: std::collections::HashMap<&str, &str> = [
+            ("com.anthropic.claude-code", "com.anthropic.claudefordesktop"),
+        ].into_iter().collect();
+
+        // Use mdfind for fast Spotlight-based lookup (much faster than scanning dirs)
+        let mut remaining: std::collections::HashSet<String> = bundle_ids.iter().cloned().collect();
+
+        for bid in &bundle_ids {
+            if result.contains_key(bid) { continue; }
+
+            // Check cache first
+            let png_path = cache_dir.join(format!("{}.png", bid));
+            if png_path.exists() {
+                if let Ok(bytes) = std::fs::read(&png_path) {
+                    use base64::Engine;
+                    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+                    result.insert(bid.clone(), format!("data:image/png;base64,{}", b64));
+                    remaining.remove(bid);
+                    continue;
+                }
+            }
+
+            // Check alias
+            let bid_str = bid.as_str();
+            let lookup_bid = aliases.get(bid_str).copied().unwrap_or(bid_str);
+
+            // Use mdfind to locate the .app bundle by bundle ID (uses Spotlight index, very fast)
+            let mdfind = std::process::Command::new("mdfind")
+                .args(["kMDItemCFBundleIdentifier", "=", lookup_bid])
+                .output();
+
+            let app_path = mdfind.ok()
+                .filter(|o| o.status.success())
+                .and_then(|o| {
+                    String::from_utf8_lossy(&o.stdout)
+                        .lines()
+                        .find(|l| l.ends_with(".app"))
+                        .map(String::from)
+                });
+
+            let Some(app_path) = app_path else { continue };
+            let path = std::path::Path::new(&app_path);
+            let plist_path = path.join("Contents/Info.plist");
+            if !plist_path.exists() { continue; }
+
+            // Find icon file name
+            let icon_output = std::process::Command::new("plutil")
+                .args(["-extract", "CFBundleIconFile", "raw", "-o", "-"])
+                .arg(&plist_path)
+                .output();
+
+            let icon_name = icon_output.ok()
+                .filter(|o| o.status.success())
+                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                .unwrap_or_else(|| "AppIcon".to_string());
+
+            let icon_base = if icon_name.ends_with(".icns") {
+                icon_name.clone()
+            } else {
+                format!("{}.icns", icon_name)
+            };
+
+            let icon_path = path.join("Contents/Resources").join(&icon_base);
+            if !icon_path.exists() { continue; }
+
+            // Convert .icns to .png at 64x64
+            if !png_path.exists() {
+                let _ = std::process::Command::new("sips")
+                    .args(["-s", "format", "png", "-z", "64", "64"])
+                    .arg(&icon_path)
+                    .arg("--out")
+                    .arg(&png_path)
+                    .output();
+            }
+
+            if png_path.exists() {
+                if let Ok(bytes) = std::fs::read(&png_path) {
+                    use base64::Engine;
+                    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+                    result.insert(bid.clone(), format!("data:image/png;base64,{}", b64));
+                    remaining.remove(bid);
+                }
+            }
+        }
+
+        Ok(result)
+    })
+    .await
+    .map_err(|e| format!("Task error: {}", e))?
 }
 
 // ---- DNS capture commands ----
@@ -642,13 +968,81 @@ async fn get_network_extension_status(app: tauri::AppHandle) -> Result<String, S
 #[tauri::command]
 async fn get_dns_log(state: tauri::State<'_, AppState>) -> Result<Vec<DnsQueryLogEntry>, String> {
     let mapping = state.dns_mapping.read().await;
-    Ok(mapping.recent_log(200))
+    Ok(mapping.recent_log(100))
 }
 
 #[tauri::command]
 async fn get_dns_stats(state: tauri::State<'_, AppState>) -> Result<DnsStats, String> {
     let mapping = state.dns_mapping.read().await;
     Ok(mapping.stats())
+}
+
+/// A blocked DNS attempt with geo coordinates for map display.
+#[derive(Debug, Clone, serde::Serialize)]
+struct BlockedAttempt {
+    domain: String,
+    dest_lat: f64,
+    dest_lon: f64,
+    city: Option<String>,
+    country: Option<String>,
+    timestamp_ms: u64,
+    blocked_by: Option<String>,
+    source_app: Option<String>,
+}
+
+#[tauri::command]
+async fn get_blocked_attempts(state: tauri::State<'_, AppState>) -> Result<Vec<BlockedAttempt>, String> {
+    let mapping = state.dns_mapping.read().await;
+    let geoip_guard = state.geoip.read().map_err(|e| format!("GeoIP lock: {}", e))?;
+    let geoip = match geoip_guard.as_ref() {
+        Some(g) => g.clone(),
+        None => return Ok(vec![]),
+    };
+    // Drop the lock before doing lookups
+    drop(geoip_guard);
+
+    let blocked_entries: Vec<DnsQueryLogEntry> = mapping
+        .recent_log(500)
+        .into_iter()
+        .filter(|e| e.is_blocked)
+        .collect();
+
+    let mut results = Vec::new();
+    let mut seen_domains = std::collections::HashSet::new();
+
+    for entry in &blocked_entries {
+        // Deduplicate by domain — show only the most recent attempt per domain
+        if !seen_domains.insert(entry.domain.clone()) {
+            continue;
+        }
+
+        // Try to find an IP to geolocate:
+        // 1. response_ips from the DNS query (NE provides these)
+        // 2. Cached domain → IP mapping from previous lookups
+        let ip_str = entry.response_ips.first().cloned().or_else(|| {
+            mapping
+                .ips_for_domain(&entry.domain)
+                .and_then(|ips| ips.first())
+                .map(|ip| ip.to_string())
+        });
+
+        if let Some(ip) = ip_str {
+            if let Some(geo) = geoip.lookup(&ip) {
+                results.push(BlockedAttempt {
+                    domain: entry.domain.clone(),
+                    dest_lat: geo.latitude,
+                    dest_lon: geo.longitude,
+                    city: geo.city,
+                    country: geo.country,
+                    timestamp_ms: entry.timestamp_ms,
+                    blocked_by: entry.blocked_by.clone(),
+                    source_app: entry.source_app.clone(),
+                });
+            }
+        }
+    }
+
+    Ok(results)
 }
 
 // ---- Historical data + preference commands ----
@@ -766,7 +1160,7 @@ fn start_auto_diagnostics(store: ConnectionStore) {
 
             // 2. Blip state
             let (blip_entries, total_ever, blip_ips) = {
-                let state = store.lock().unwrap();
+                let state = store.read().unwrap();
                 let entries: Vec<String> = state.connections.values().map(|c| {
                     format!("  {}:{} | {} | active={} | {:?}, {:?}",
                         c.dest_ip, c.dest_port,
@@ -865,7 +1259,7 @@ async fn get_diagnostics(state: tauri::State<'_, AppState>) -> Result<Vec<Diagno
 
     // 5. GeoIP database
     {
-        let store = state.store.lock().unwrap();
+        let store = state.store.read().unwrap();
         let conn_count = store.connections.len();
         let with_geo = store.connections.values().filter(|c| c.dest_lat != 0.0 || c.dest_lon != 0.0).count();
         items.push(DiagnosticItem {
@@ -877,7 +1271,7 @@ async fn get_diagnostics(state: tauri::State<'_, AppState>) -> Result<Vec<Diagno
 
     // 6. DNS resolution
     {
-        let store = state.store.lock().unwrap();
+        let store = state.store.read().unwrap();
         let conn_count = store.connections.len();
         let with_domain = store.connections.values().filter(|c| c.domain.is_some()).count();
         items.push(DiagnosticItem {
@@ -899,12 +1293,150 @@ async fn get_diagnostics(state: tauri::State<'_, AppState>) -> Result<Vec<Diagno
 
     // 8. Connection store stats
     {
-        let store = state.store.lock().unwrap();
+        let store = state.store.read().unwrap();
         items.push(DiagnosticItem {
             name: "Connection store".into(),
             status: "ok".into(),
             detail: format!("{} active, {} total ever", store.connections.len(), store.total_ever),
         });
+    }
+
+    // 9. NE bridge socket
+    {
+        let socket_path = std::path::Path::new("/private/var/tmp/blip-ne.sock");
+        if socket_path.exists() {
+            let meta = std::fs::metadata(socket_path);
+            let owner_info = match meta {
+                Ok(_) => "exists".to_string(),
+                Err(e) => format!("error: {}", e),
+            };
+            // Try to check if any NE is connected by looking at active connections
+            items.push(DiagnosticItem {
+                name: "NE bridge socket".into(),
+                status: "ok".into(),
+                detail: format!("Socket {} — {}", socket_path.display(), owner_info),
+            });
+        } else {
+            items.push(DiagnosticItem {
+                name: "NE bridge socket".into(),
+                status: "error".into(),
+                detail: format!("Socket not found at {}", socket_path.display()),
+            });
+        }
+    }
+
+    // 10. NE system extension process
+    {
+        let ne_proc = tokio::process::Command::new("pgrep")
+            .arg("-f")
+            .arg("com.infamousvague.blip.network-extension")
+            .output()
+            .await;
+        let ne_running = ne_proc.map(|o| o.status.success()).unwrap_or(false);
+        items.push(DiagnosticItem {
+            name: "NE process".into(),
+            status: if ne_running { "ok" } else { "error" }.into(),
+            detail: if ne_running { "Running".into() } else { "Not running".into() },
+        });
+    }
+
+    // 11. DNS proxy status (from NE bridge result file)
+    {
+        let result_path = dirs::home_dir()
+            .map(|h| h.join(".blip/ne-result.json"))
+            .unwrap_or_default();
+        let dns_proxy_status = if let Ok(content) = std::fs::read_to_string(&result_path) {
+            if content.contains("\"dns_proxy\":true") {
+                ("ok", "Enabled".to_string())
+            } else if content.contains("\"dns_proxy\":false") {
+                ("error", "Disabled — DNS queries won't be captured".to_string())
+            } else {
+                ("warning", format!("Unknown: {}", content.chars().take(80).collect::<String>()))
+            }
+        } else {
+            ("warning", "No status file found".to_string())
+        };
+        items.push(DiagnosticItem {
+            name: "DNS proxy".into(),
+            status: dns_proxy_status.0.into(),
+            detail: dns_proxy_status.1,
+        });
+    }
+
+    // 12. Installed NE version & providers
+    {
+        let ne_check = tokio::process::Command::new("bash")
+            .arg("-c")
+            .arg("for d in /Library/SystemExtensions/*/com.infamousvague.blip.network-extension.systemextension; do if [ -f \"$d/Contents/Info.plist\" ]; then plutil -extract CFBundleShortVersionString raw \"$d/Contents/Info.plist\" 2>/dev/null; echo -n ' | '; plutil -extract NetworkExtension.NEProviderClasses raw \"$d/Contents/Info.plist\" 2>/dev/null || echo 'no-providers'; break; fi; done")
+            .output()
+            .await;
+        let ne_info = ne_check
+            .ok()
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .unwrap_or_default();
+        if ne_info.is_empty() {
+            items.push(DiagnosticItem {
+                name: "Installed NE version".into(),
+                status: "error".into(),
+                detail: "No NE installed in /Library/SystemExtensions".into(),
+            });
+        } else {
+            let has_dns = ne_info.contains("dns-proxy");
+            items.push(DiagnosticItem {
+                name: "Installed NE version".into(),
+                status: if has_dns { "ok" } else { "warning" }.into(),
+                detail: ne_info,
+            });
+        }
+    }
+
+    // 13. Installed NE Info.plist provider classes
+    {
+        let plist_check = tokio::process::Command::new("bash")
+            .arg("-c")
+            .arg("for d in /Library/SystemExtensions/*/com.infamousvague.blip.network-extension.systemextension; do if [ -f \"$d/Contents/Info.plist\" ]; then plutil -p \"$d/Contents/Info.plist\" 2>/dev/null | grep -o 'networkextension\\.[a-z-]*'; fi; done | sort -u")
+            .output()
+            .await;
+        let providers = plist_check
+            .ok()
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .unwrap_or_default();
+        let has_filter = providers.contains("filter-data");
+        let has_dns = providers.contains("dns-proxy");
+        items.push(DiagnosticItem {
+            name: "NE provider classes".into(),
+            status: if has_filter && has_dns { "ok" } else if has_filter { "warning" } else { "error" }.into(),
+            detail: format!("Filter: {} | DNS proxy: {}", if has_filter { "yes" } else { "no" }, if has_dns { "yes" } else { "no" }),
+        });
+    }
+
+    // 14. Enricher / ASN database
+    {
+        let enricher = state.enricher.lock().unwrap();
+        let has_asn = enricher.has_asn_db();
+        items.push(DiagnosticItem {
+            name: "ASN database".into(),
+            status: if has_asn { "ok" } else { "error" }.into(),
+            detail: if has_asn { "Loaded — ISP/ASN lookups active".into() } else { "Not loaded — ISP will show Unknown".into() },
+        });
+    }
+
+    // 15. DNS mapping stats
+    {
+        if let Ok(mapping) = state.dns_mapping.try_read() {
+            let stats = mapping.stats();
+            items.push(DiagnosticItem {
+                name: "DNS mapping".into(),
+                status: if stats.total_queries > 0 { "ok" } else { "warning" }.into(),
+                detail: format!("{} queries, {} unique domains, {} blocked", stats.total_queries, stats.unique_domains, stats.blocked_count),
+            });
+        } else {
+            items.push(DiagnosticItem {
+                name: "DNS mapping".into(),
+                status: "warning".into(),
+                detail: "Lock busy".into(),
+            });
+        }
     }
 
     Ok(items)
@@ -957,8 +1489,26 @@ pub fn run() {
                 .unwrap();
             rt.block_on(async {
                 let defaults = [
+                    // Core ad/tracker blocking
                     ("Steven Black's Unified Hosts", "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts"),
+                    ("Peter Lowe's Ad Servers", "https://pgl.yoyo.org/adservers/serverlist.php?hostformat=hosts&showintro=0"),
                     ("AdGuard DNS Filter", "https://adguardteam.github.io/AdGuardSDNSFilter/Filters/filter.txt"),
+                    // Comprehensive lists
+                    ("Hagezi Multi Normal", "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/hosts/multi.txt"),
+                    ("OISD Big", "https://big.oisd.nl/"),
+                    // Tracking-specific
+                    ("EasyPrivacy (domains)", "https://v.firebog.net/hosts/Easyprivacy.txt"),
+                    ("Disconnect.me Tracking", "https://s3.amazonaws.com/lists.disconnect.me/simple_tracking.txt"),
+                    ("Disconnect.me Ads", "https://s3.amazonaws.com/lists.disconnect.me/simple_ad.txt"),
+                    // Malware/phishing
+                    ("Phishing Army", "https://phishing.army/download/phishing_army_blocklist.txt"),
+                    ("URLhaus Malware", "https://malware-filter.gitlab.io/malware-filter/urlhaus-filter-hosts.txt"),
+                    // Social tracking
+                    ("Fanboy Social (domains)", "https://v.firebog.net/hosts/Prigent-Crypto.txt"),
+                    // Mobile-specific
+                    ("GoodbyeAds", "https://raw.githubusercontent.com/jerryn70/GoodbyeAds/master/Hosts/GoodbyeAds.txt"),
+                    // Telemetry
+                    ("Windows Spy Blocker", "https://raw.githubusercontent.com/nicehash/host/master/spy.txt"),
                 ];
                 for (name, url) in defaults {
                     eprintln!("Downloading default blocklist: {}", name);
@@ -986,10 +1536,13 @@ pub fn run() {
 
     // Initialize enricher with ASN database
     // We need the resource dir but don't have Tauri's app handle yet.
-    // The resources are at the executable's parent dir / resources
+    // In a bundled app: exe is at Contents/MacOS/app, resources at Contents/Resources/resources
     let enricher = {
         let exe = std::env::current_exe().unwrap_or_default();
-        let resource_dir = exe.parent().unwrap_or(std::path::Path::new(".")).join("resources");
+        let mac_os_dir = exe.parent().unwrap_or(std::path::Path::new("."));
+        let resource_dir = mac_os_dir.parent()
+            .map(|contents| contents.join("Resources").join("resources"))
+            .unwrap_or_else(|| mac_os_dir.join("resources"));
         match Enricher::new(&resource_dir) {
             Ok(e) => {
                 eprintln!("Enricher loaded (ASN database)");
@@ -1002,24 +1555,28 @@ pub fn run() {
         }
     };
 
+    eprintln!("[BOOT] Building Tauri app...");
+
     tauri::Builder::default()
         .plugin(tauri_plugin_geolocation::init())
         .manage(AppState {
             running: Arc::new(AtomicBool::new(false)),
             elevated: Arc::new(AtomicBool::new(false)),
             elevating: Arc::new(AtomicBool::new(false)),
-            store: Arc::new(Mutex::new(ConnectionState::new())),
+            store: Arc::new(StdRwLock::new(ConnectionState::new())),
             blocklists,
             db,
             db_writer,
             enricher,
             dns_mapping: Arc::new(RwLock::new(DnsMapping::new())),
             dns_capture: Arc::new(tokio::sync::Mutex::new(None)),
+            geoip: Arc::new(StdRwLock::new(None)),
         })
         .invoke_handler(tauri::generate_handler![
             start_capture,
             stop_capture,
             get_connections,
+            get_connections_delta,
             get_bandwidth,
             request_elevation,
             check_elevation,
@@ -1039,11 +1596,22 @@ pub fn run() {
             get_user_location,
             get_dns_log,
             get_dns_stats,
+            get_blocked_attempts,
             activate_network_extension,
             deactivate_network_extension,
-            get_network_extension_status
+            get_network_extension_status,
+            get_firewall_rules,
+            set_firewall_rule,
+            delete_firewall_rule,
+            get_app_list,
+            get_firewall_mode,
+            set_firewall_mode,
+            export_firewall_rules,
+            import_firewall_rules,
+            get_app_icons
         ])
         .setup(|_app| {
+            eprintln!("[BOOT] Setup starting...");
             // Always log to a fixed file path + stdout
             let log_path = std::path::PathBuf::from("/tmp/blip-debug.log");
             // Clear previous log
@@ -1065,13 +1633,9 @@ pub fn run() {
                 ));
 
             _app.handle().plugin(log_builder.build())?;
+            eprintln!("[BOOT] Log plugin initialized");
             log::info!("Blip started — logs at /tmp/blip-debug.log");
-
-            // Open devtools to debug production builds
-            if let Some(window) = _app.get_webview_window("main") {
-                window.open_devtools();
-            }
-
+            eprintln!("[BOOT] Setup complete, running...");
             Ok(())
         })
         .run(tauri::generate_context!())

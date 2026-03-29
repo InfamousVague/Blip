@@ -65,6 +65,17 @@ export interface SelfIpInfo {
   network_type?: string;
 }
 
+export interface BlockedAttempt {
+  domain: string;
+  dest_lat: number;
+  dest_lon: number;
+  city: string | null;
+  country: string | null;
+  timestamp_ms: number;
+  blocked_by: string | null;
+  source_app: string | null;
+}
+
 export interface DnsQueryLogEntry {
   domain: string;
   query_type: string;

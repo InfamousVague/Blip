@@ -1,0 +1,411 @@
+import Foundation
+import NetworkExtension
+import os.log
+
+/// NEDNSProxyProvider — intercepts all DNS queries system-wide.
+/// Forwards to upstream resolver, checks blocklist via main app, and returns
+/// NXDOMAIN for blocked domains.
+class BlipDNSProvider: NEDNSProxyProvider {
+
+    private let log = OSLog(subsystem: "com.infamousvague.blip.network-extension", category: "dns-proxy")
+    private var socketBridge: SocketBridge?
+
+    /// Domains to block — loaded from the main app via socket.
+    /// For Phase 3 we send DNS events to the main app and it tells us if blocked.
+    /// For simplicity, we do a fire-and-forget approach: forward all queries,
+    /// log them, and the main app handles visibility. Active blocking will come
+    /// when we add a bidirectional protocol (verdict flow).
+    private var blockedDomains: Set<String> = []
+    private let blockedDomainsLock = NSLock()
+
+    // Upstream DNS servers to forward queries to
+    private let upstreamServers: [String] = [
+        "1.1.1.1",   // Cloudflare
+        "8.8.8.8",   // Google
+    ]
+
+    // MARK: - Lifecycle
+
+    override func startProxy(options: [String: Any]? = nil, completionHandler: @escaping (Error?) -> Void) {
+        os_log("Starting DNS proxy", log: log, type: .info)
+
+        socketBridge = SocketBridge()
+        socketBridge?.connect()
+
+        completionHandler(nil)
+    }
+
+    override func stopProxy(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {
+        os_log("Stopping DNS proxy, reason: %d", log: log, type: .info, reason.rawValue)
+        socketBridge?.disconnect()
+        socketBridge = nil
+        completionHandler()
+    }
+
+    // MARK: - DNS Flow Handling
+
+    override func handleNewFlow(_ flow: NEAppProxyFlow) -> Bool {
+        guard let udpFlow = flow as? NEAppProxyUDPFlow else {
+            // We only handle UDP DNS
+            return false
+        }
+
+        // Handle this flow
+        handleDNSFlow(udpFlow)
+        return true
+    }
+
+    private func handleDNSFlow(_ flow: NEAppProxyUDPFlow) {
+        // Open the flow to start reading datagrams
+        flow.open(withLocalEndpoint: nil) { [weak self] error in
+            guard let self = self else { return }
+
+            if let error = error {
+                os_log("Failed to open DNS flow: %{public}@", log: self.log, type: .error, error.localizedDescription)
+                return
+            }
+
+            self.readAndForwardDNS(flow)
+        }
+    }
+
+    private func readAndForwardDNS(_ flow: NEAppProxyUDPFlow) {
+        flow.readDatagrams { [weak self] datagrams, endpoints, error in
+            guard let self = self else { return }
+
+            if let error = error {
+                os_log("DNS read error: %{public}@", log: self.log, type: .debug, error.localizedDescription)
+                return
+            }
+
+            guard let datagrams = datagrams, let endpoints = endpoints,
+                  !datagrams.isEmpty else {
+                return
+            }
+
+            for (index, datagram) in datagrams.enumerated() {
+                self.processDNSQuery(datagram, flow: flow, originalEndpoint: endpoints[index])
+            }
+
+            // Continue reading
+            self.readAndForwardDNS(flow)
+        }
+    }
+
+    private func processDNSQuery(_ datagram: Data, flow: NEAppProxyUDPFlow, originalEndpoint: NWEndpoint) {
+        // Parse the DNS query to extract the domain name
+        guard let queryName = parseDNSQueryName(from: datagram) else {
+            // Can't parse — forward as-is
+            forwardToUpstream(datagram, flow: flow, originalEndpoint: originalEndpoint, domain: nil)
+            return
+        }
+
+        let queryType = parseDNSQueryType(from: datagram) ?? "A"
+
+        // Get source app info from the flow
+        let sourceAppAuditToken = flow.metaData.sourceAppAuditToken
+        let sourceAppId = resolveBundleId(from: sourceAppAuditToken) ?? "unknown"
+        let sourcePid = pidFromAuditToken(sourceAppAuditToken)
+
+        // Check if domain is blocked
+        let isBlocked = isDomainBlocked(queryName)
+
+        // Send DNS event to main app for logging
+        let dnsEvent = NEDnsEvent(
+            domain: queryName,
+            queryType: queryType,
+            responseIps: [],
+            timestampMs: UInt64(Date().timeIntervalSince1970 * 1000),
+            sourceAppId: sourceAppId,
+            sourcePid: sourcePid,
+            blocked: isBlocked
+        )
+        socketBridge?.send(dnsEvent: dnsEvent)
+
+        if isBlocked {
+            // Return NXDOMAIN response
+            if let nxdomainResponse = buildNXDOMAINResponse(for: datagram) {
+                flow.writeDatagrams([nxdomainResponse], sentBy: [originalEndpoint]) { error in
+                    if let error = error {
+                        os_log("Failed to write NXDOMAIN: %{public}@", log: self.log, type: .error, error.localizedDescription)
+                    }
+                }
+            }
+            return
+        }
+
+        // Forward to upstream
+        forwardToUpstream(datagram, flow: flow, originalEndpoint: originalEndpoint, domain: queryName)
+    }
+
+    // MARK: - DNS Forwarding
+
+    private func forwardToUpstream(_ datagram: Data, flow: NEAppProxyUDPFlow, originalEndpoint: NWEndpoint, domain: String?) {
+        // Create a UDP socket to the upstream DNS server
+        let upstreamHost = upstreamServers.first ?? "1.1.1.1"
+        let endpoint = NWHostEndpoint(hostname: upstreamHost, port: "53")
+
+        // Use a simple UDP send/receive
+        let socket = createUDPSocket()
+        guard let sock = socket else {
+            os_log("Failed to create upstream socket", log: log, type: .error)
+            return
+        }
+
+        sendUDPQuery(sock: sock, data: datagram, to: upstreamHost, port: 53) { [weak self] response in
+            guard let self = self, let response = response else { return }
+
+            // Parse response IPs for logging
+            let ips = self.parseDNSResponseIPs(from: response)
+            if let domain = domain, !ips.isEmpty {
+                // Send updated DNS event with resolved IPs
+                let sourceAppAuditToken = flow.metaData.sourceAppAuditToken
+                let sourceAppId = self.resolveBundleId(from: sourceAppAuditToken) ?? "unknown"
+                let sourcePid = self.pidFromAuditToken(sourceAppAuditToken)
+
+                let dnsEvent = NEDnsEvent(
+                    domain: domain,
+                    queryType: "A",
+                    responseIps: ips,
+                    timestampMs: UInt64(Date().timeIntervalSince1970 * 1000),
+                    sourceAppId: sourceAppId,
+                    sourcePid: sourcePid,
+                    blocked: false
+                )
+                self.socketBridge?.send(dnsEvent: dnsEvent)
+            }
+
+            // Write response back to the original flow
+            flow.writeDatagrams([response], sentBy: [originalEndpoint]) { error in
+                if let error = error {
+                    os_log("Failed to write DNS response: %{public}@", log: self.log, type: .debug, error.localizedDescription)
+                }
+            }
+
+            close(sock)
+        }
+    }
+
+    // MARK: - Blocklist
+
+    func updateBlockedDomains(_ domains: Set<String>) {
+        blockedDomainsLock.lock()
+        blockedDomains = domains
+        blockedDomainsLock.unlock()
+    }
+
+    private func isDomainBlocked(_ domain: String) -> Bool {
+        let lower = domain.lowercased()
+        blockedDomainsLock.lock()
+        let blocked = blockedDomains.contains(lower)
+        blockedDomainsLock.unlock()
+        return blocked
+    }
+
+    // MARK: - DNS Parsing Helpers
+
+    private func parseDNSQueryName(from data: Data) -> String? {
+        guard data.count > 12 else { return nil }
+
+        var labels: [String] = []
+        var offset = 12 // Skip DNS header
+
+        while offset < data.count {
+            let len = Int(data[offset])
+            if len == 0 { break }
+            if len & 0xC0 == 0xC0 { break } // Compression pointer
+
+            offset += 1
+            guard offset + len <= data.count else { return nil }
+
+            let labelData = data.subdata(in: offset..<(offset + len))
+            guard let label = String(data: labelData, encoding: .utf8) else { return nil }
+            labels.append(label)
+            offset += len
+        }
+
+        return labels.isEmpty ? nil : labels.joined(separator: ".")
+    }
+
+    private func parseDNSQueryType(from data: Data) -> String? {
+        guard data.count > 12 else { return nil }
+
+        // Skip to after the query name
+        var offset = 12
+        while offset < data.count {
+            let len = Int(data[offset])
+            if len == 0 { offset += 1; break }
+            offset += 1 + len
+        }
+
+        guard offset + 2 <= data.count else { return nil }
+        let qtype = UInt16(data[offset]) << 8 | UInt16(data[offset + 1])
+
+        switch qtype {
+        case 1: return "A"
+        case 28: return "AAAA"
+        case 5: return "CNAME"
+        case 15: return "MX"
+        case 2: return "NS"
+        case 65: return "HTTPS"
+        default: return "OTHER"
+        }
+    }
+
+    private func parseDNSResponseIPs(from data: Data) -> [String] {
+        guard data.count > 12 else { return [] }
+
+        // Skip header
+        let ancount = UInt16(data[6]) << 8 | UInt16(data[7])
+        guard ancount > 0 else { return [] }
+
+        // Skip question section
+        var offset = 12
+        let qdcount = UInt16(data[4]) << 8 | UInt16(data[5])
+        for _ in 0..<qdcount {
+            while offset < data.count {
+                let len = Int(data[offset])
+                if len == 0 { offset += 1; break }
+                if len & 0xC0 == 0xC0 { offset += 2; break }
+                offset += 1 + len
+            }
+            offset += 4 // QTYPE + QCLASS
+        }
+
+        // Parse answer records
+        var ips: [String] = []
+        for _ in 0..<ancount {
+            guard offset < data.count else { break }
+
+            // Skip name (may be compressed)
+            if data[offset] & 0xC0 == 0xC0 {
+                offset += 2
+            } else {
+                while offset < data.count {
+                    let len = Int(data[offset])
+                    if len == 0 { offset += 1; break }
+                    offset += 1 + len
+                }
+            }
+
+            guard offset + 10 <= data.count else { break }
+            let rtype = UInt16(data[offset]) << 8 | UInt16(data[offset + 1])
+            let rdlength = Int(UInt16(data[offset + 8]) << 8 | UInt16(data[offset + 9]))
+            offset += 10
+
+            guard offset + rdlength <= data.count else { break }
+
+            if rtype == 1 && rdlength == 4 {
+                // A record
+                let ip = "\(data[offset]).\(data[offset+1]).\(data[offset+2]).\(data[offset+3])"
+                ips.append(ip)
+            } else if rtype == 28 && rdlength == 16 {
+                // AAAA record
+                var segments: [String] = []
+                for i in stride(from: 0, to: 16, by: 2) {
+                    let seg = UInt16(data[offset + i]) << 8 | UInt16(data[offset + i + 1])
+                    segments.append(String(format: "%x", seg))
+                }
+                ips.append(segments.joined(separator: ":"))
+            }
+
+            offset += rdlength
+        }
+
+        return ips
+    }
+
+    /// Build an NXDOMAIN response for the given query.
+    private func buildNXDOMAINResponse(for query: Data) -> Data? {
+        guard query.count >= 12 else { return nil }
+
+        var response = Data(query)
+        // Set QR bit (response) + RCODE=3 (NXDOMAIN)
+        response[2] = response[2] | 0x80  // QR = 1
+        response[3] = (response[3] & 0xF0) | 0x03  // RCODE = 3 (NXDOMAIN)
+        // Zero answer/authority/additional counts
+        response[6] = 0; response[7] = 0  // ANCOUNT = 0
+        response[8] = 0; response[9] = 0  // NSCOUNT = 0
+        response[10] = 0; response[11] = 0  // ARCOUNT = 0
+        // Truncate to just header + question
+        // Find end of question section
+        var offset = 12
+        let qdcount = UInt16(query[4]) << 8 | UInt16(query[5])
+        for _ in 0..<qdcount {
+            while offset < query.count {
+                let len = Int(query[offset])
+                if len == 0 { offset += 1; break }
+                offset += 1 + len
+            }
+            offset += 4 // QTYPE + QCLASS
+        }
+        return Data(response.prefix(offset))
+    }
+
+    // MARK: - UDP Socket Helpers
+
+    private func createUDPSocket() -> Int32? {
+        let sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
+        guard sock >= 0 else { return nil }
+
+        // Set receive timeout (2 seconds)
+        var timeout = timeval(tv_sec: 2, tv_usec: 0)
+        setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+
+        return sock
+    }
+
+    private func sendUDPQuery(sock: Int32, data: Data, to host: String, port: UInt16, completion: @escaping (Data?) -> Void) {
+        DispatchQueue.global(qos: .userInteractive).async {
+            var addr = sockaddr_in()
+            addr.sin_family = sa_family_t(AF_INET)
+            addr.sin_port = port.bigEndian
+            inet_pton(AF_INET, host, &addr.sin_addr)
+
+            let sent = data.withUnsafeBytes { ptr in
+                withUnsafePointer(to: &addr) { addrPtr in
+                    addrPtr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockPtr in
+                        sendto(sock, ptr.baseAddress, data.count, 0, sockPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
+                    }
+                }
+            }
+
+            guard sent > 0 else {
+                completion(nil)
+                return
+            }
+
+            // Receive response
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            let received = recv(sock, &buffer, buffer.count, 0)
+
+            if received > 0 {
+                completion(Data(buffer.prefix(received)))
+            } else {
+                completion(nil)
+            }
+        }
+    }
+
+    // MARK: - Process Identification
+
+    private func pidFromAuditToken(_ token: Data?) -> Int {
+        guard let token = token, token.count >= 32 else { return 0 }
+        return token.withUnsafeBytes { ptr -> Int in
+            Int(ptr.load(fromByteOffset: 20, as: Int32.self))
+        }
+    }
+
+    private func resolveBundleId(from token: Data?) -> String? {
+        guard let token = token else { return nil }
+        let pid = pidFromAuditToken(token)
+        guard pid > 0 else { return nil }
+
+        var pathBuffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+        let pathLen = proc_pidpath(Int32(pid), &pathBuffer, UInt32(MAXPATHLEN))
+        guard pathLen > 0 else { return nil }
+
+        let path = String(cString: pathBuffer)
+        return path.components(separatedBy: "/").last
+    }
+}

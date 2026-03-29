@@ -52,9 +52,13 @@ NE_PROFILE="$HOME/Library/MobileDevice/Provisioning Profiles/Blip_NE_Developer_I
 
 if [ -f "$NE_PROFILE" ]; then
     cp "$NE_PROFILE" "$TARGET_DIR/$SYSEXT_NAME/Contents/embedded.provisionprofile"
-    echo "Embedded NE provisioning profile"
+    echo "Embedded NE provisioning profile from ~/Library/MobileDevice"
+elif [ -f "$TAURI_DIR/resources/$SYSEXT_NAME/Contents/embedded.provisionprofile" ]; then
+    cp "$TAURI_DIR/resources/$SYSEXT_NAME/Contents/embedded.provisionprofile" \
+       "$TARGET_DIR/$SYSEXT_NAME/Contents/embedded.provisionprofile"
+    echo "Embedded NE provisioning profile from resources/"
 else
-    echo "WARNING: NE provisioning profile not found at $NE_PROFILE"
+    echo "WARNING: NE provisioning profile not found — NE activation will fail"
 fi
 
 if [ -f "$APP_PROFILE" ]; then
