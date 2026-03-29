@@ -3,16 +3,24 @@ pub mod types;
 use crate::blocklist::BlocklistStore;
 use crate::capture::nettop::ConnectionStore;
 use crate::capture::types::{Protocol, ResolvedConnection};
+use crate::db::Database;
 use crate::db_writer::{DbMessage, DbWriter};
 use crate::dns_capture::SharedDnsMapping;
 use crate::enrichment::Enricher;
 use crate::geoip::GeoIp;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixListener;
+use tokio::sync::broadcast;
 use types::{NEConnectionEvent, NEDnsEvent, NEEvent};
 use uuid::Uuid;
+
+/// Messages sent from the app to connected NE clients.
+#[derive(Clone, Debug)]
+enum NEOutboundMsg {
+    BlockedIPs(Vec<String>),
+}
 
 /// Manages the Unix domain socket server that receives events from the Network Extension.
 pub struct NEBridge {
@@ -21,10 +29,9 @@ pub struct NEBridge {
 
 impl NEBridge {
     pub fn new() -> Self {
-        let socket_path = dirs::home_dir()
-            .unwrap_or_default()
-            .join(".blip")
-            .join("ne.sock");
+        // Fixed path accessible to both the NE (runs as root) and the main app (runs as user).
+        // The NE's homeDirectoryForCurrentUser resolves to /var/root, not the user's home.
+        let socket_path = std::path::PathBuf::from("/private/var/tmp/blip-ne.sock");
         Self { socket_path }
     }
 
@@ -38,6 +45,7 @@ impl NEBridge {
         db_writer: Arc<DbWriter>,
         dns_mapping: SharedDnsMapping,
         enricher: Arc<std::sync::Mutex<Enricher>>,
+        db: Arc<Database>,
     ) -> Result<(), String> {
         // Remove stale socket file
         let _ = std::fs::remove_file(&self.socket_path);
@@ -53,6 +61,9 @@ impl NEBridge {
 
         log::info!("NE bridge listening at {:?}", self.socket_path);
 
+        // Broadcast channel for sending blocked IPs to all connected NE clients
+        let (outbound_tx, _) = broadcast::channel::<NEOutboundMsg>(64);
+
         // Accept connections from the NE
         tokio::spawn(async move {
             loop {
@@ -65,9 +76,85 @@ impl NEBridge {
                         let db_writer = db_writer.clone();
                         let dns_mapping = dns_mapping.clone();
                         let enricher = enricher.clone();
+                        let db = db.clone();
+                        let outbound_tx = outbound_tx.clone();
+                        let mut outbound_rx = outbound_tx.subscribe();
 
                         tokio::spawn(async move {
-                            let reader = BufReader::new(stream);
+                            let (read_half, mut write_half) = stream.into_split();
+
+                            // Send firewall rules to NE on connect
+                            {
+                                if let Ok(rules) = db.get_firewall_rules() {
+                                    let rule_entries: Vec<serde_json::Value> = rules.iter()
+                                        .filter(|r| r.action != "unspecified")
+                                        .map(|r| serde_json::json!({"app_id": r.app_id, "action": r.action}))
+                                        .collect();
+                                    if !rule_entries.is_empty() {
+                                        let msg = serde_json::json!({
+                                            "type": "firewall_rules",
+                                            "rules": rule_entries
+                                        });
+                                        let mut bytes = serde_json::to_vec(&msg).unwrap_or_default();
+                                        bytes.push(b'\n');
+                                        let _ = write_half.write_all(&bytes).await;
+                                        log::info!("Sent {} firewall rules to NE", rule_entries.len());
+                                    }
+                                }
+                            }
+
+                            // Send blocklist to NE in chunks to avoid freezing
+                            {
+                                let all_domains: Vec<String> = blocklists.all_blocked_domains();
+                                if !all_domains.is_empty() {
+                                    let total = all_domains.len();
+                                    const CHUNK_SIZE: usize = 50_000;
+                                    let mut sent = 0usize;
+                                    for chunk in all_domains.chunks(CHUNK_SIZE) {
+                                        let sync_msg = serde_json::json!({
+                                            "type": "blocklist_sync",
+                                            "domains": chunk
+                                        });
+                                        let mut msg_bytes = serde_json::to_vec(&sync_msg).unwrap_or_default();
+                                        msg_bytes.push(b'\n');
+                                        if let Err(e) = write_half.write_all(&msg_bytes).await {
+                                            log::warn!("Failed to send blocklist chunk to NE: {}", e);
+                                            break;
+                                        }
+                                        sent += chunk.len();
+                                        // Yield between chunks to avoid blocking the runtime
+                                        tokio::task::yield_now().await;
+                                    }
+                                    log::info!("Sent {} blocked domains to NE in {} chunks", sent, (total + CHUNK_SIZE - 1) / CHUNK_SIZE);
+                                }
+                            }
+
+                            // Split write_half into Arc<Mutex> so both reader and outbound forwarder can use it
+                            let write_half = Arc::new(tokio::sync::Mutex::new(write_half));
+                            let write_for_outbound = write_half.clone();
+
+                            // Spawn outbound forwarder — sends blocked IPs to this NE client
+                            let outbound_task = tokio::spawn(async move {
+                                while let Ok(msg) = outbound_rx.recv().await {
+                                    match msg {
+                                        NEOutboundMsg::BlockedIPs(ips) => {
+                                            let msg = serde_json::json!({
+                                                "type": "blocked_ips",
+                                                "ips": ips
+                                            });
+                                            let mut bytes = serde_json::to_vec(&msg).unwrap_or_default();
+                                            bytes.push(b'\n');
+                                            let mut w = write_for_outbound.lock().await;
+                                            if let Err(e) = w.write_all(&bytes).await {
+                                                log::debug!("Outbound write failed: {}", e);
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                            });
+
+                            let reader = BufReader::new(read_half);
                             let mut lines = reader.lines();
 
                             while let Ok(Some(line)) = lines.next_line().await {
@@ -75,6 +162,16 @@ impl NEBridge {
                                     Ok(event) => match event.type_.as_str() {
                                         "connection" => {
                                             if let Some(conn_event) = event.connection {
+                                                // Track app for firewall sidebar auto-discovery
+                                                let app_id = conn_event.source_app_id.clone();
+                                                let is_apple = app_id.starts_with("com.apple.");
+                                                let _ = db.upsert_app_connection(
+                                                    &app_id,
+                                                    &app_id, // Use bundle ID as name for now
+                                                    None,
+                                                    is_apple,
+                                                );
+
                                                 process_ne_connection(
                                                     conn_event,
                                                     &store,
@@ -89,13 +186,18 @@ impl NEBridge {
                                         }
                                         "dns" => {
                                             if let Some(dns_event) = event.dns {
-                                                process_ne_dns(
+                                                let new_blocked_ips = process_ne_dns(
                                                     dns_event,
                                                     &dns_mapping,
                                                     &blocklists,
                                                     &db_writer,
                                                 )
                                                 .await;
+
+                                                // If DNS resolution revealed blocked IPs, broadcast to all NE clients
+                                                if !new_blocked_ips.is_empty() {
+                                                    let _ = outbound_tx.send(NEOutboundMsg::BlockedIPs(new_blocked_ips));
+                                                }
                                             }
                                         }
                                         other => {
@@ -108,6 +210,7 @@ impl NEBridge {
                                 }
                             }
 
+                            outbound_task.abort();
                             log::info!("NE disconnected from bridge socket");
                         });
                     }
@@ -130,12 +233,13 @@ impl NEBridge {
 
 /// Process a DNS query event from the NE DNS proxy.
 /// Feeds into the shared DnsMapping (same as Phase 1 pcap) but with process attribution.
+/// Returns a list of blocked IPs if the domain was blocked and had response IPs.
 async fn process_ne_dns(
     event: NEDnsEvent,
     dns_mapping: &SharedDnsMapping,
     blocklists: &BlocklistStore,
     db_writer: &DbWriter,
-) {
+) -> Vec<String> {
     let is_blocked = event.blocked || blocklists.is_blocked(&event.domain);
     let blocked_by = if is_blocked {
         blocklists.blocked_by(&event.domain)
@@ -161,14 +265,18 @@ async fn process_ne_dns(
     db_writer.send_dns_query(
         event.domain.clone(),
         event.query_type,
-        event.response_ips,
+        event.response_ips.clone(),
         event.timestamp_ms,
         is_blocked,
     );
 
     if is_blocked {
         log::debug!("NE DNS blocked: {} (by {})", event.domain, event.source_app_id);
+        // Return the IPs that map to this blocked domain so the filter can .drop() them
+        return event.response_ips;
     }
+
+    Vec::new()
 }
 
 /// Process a single connection event from the Network Extension.
@@ -248,7 +356,7 @@ async fn process_ne_connection(
 
     // Insert into connection store
     {
-        let mut state = store.lock().unwrap();
+        let mut state = store.write().unwrap();
 
         // Check if we already track this IP:port (dedup with netstat)
         let _key = format!("{}:{}", event.dest_ip, event.dest_port);
@@ -280,19 +388,21 @@ async fn process_ne_connection(
             conn.country.as_deref().unwrap_or("?")
         );
 
+        let tracker_domain = if is_tracker { conn.domain.clone() } else { None };
         db_writer.send(DbMessage::InsertConnection(conn.clone()));
+        state.mark_changed(&id);
         state.connections.insert(id, conn);
         state.total_ever += 1;
-    }
 
-    // Track blocked domains
-    if is_tracker {
-        db_writer.send(DbMessage::UpdateTracker {
-            domain: event.source_app_id,
-            category: Some("tracker".to_string()),
-            bytes_in: 0,
-            bytes_out: 0,
-            timestamp_ms: event.timestamp_ms,
-        });
+        // Track blocked domains — use the resolved domain, not the app bundle ID
+        if let Some(domain) = tracker_domain {
+            db_writer.send(DbMessage::UpdateTracker {
+                domain,
+                category: Some("tracker".to_string()),
+                bytes_in: 0,
+                bytes_out: 0,
+                timestamp_ms: event.timestamp_ms,
+            });
+        }
     }
 }

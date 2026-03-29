@@ -5,17 +5,76 @@
   position: relative;
 }
 
-.titlebar {
+/* ── Topbar (Claude Desktop-style dark glass bar) ── */
+
+.topbar {
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
-  height: 1.75rem;
+  height: 48px;
   z-index: 9999;
   -webkit-app-region: drag;
   app-region: drag;
-  pointer-events: auto;
-  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: linear-gradient(135deg, rgba(18, 18, 28, 0.88) 0%, rgba(22, 18, 32, 0.85) 50%, rgba(18, 18, 24, 0.88) 100%);
+  backdrop-filter: blur(40px) saturate(1.8);
+  -webkit-backdrop-filter: blur(40px) saturate(1.8);
+  border-bottom: 1px solid rgba(140, 120, 255, 0.06);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+.topbar__left {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding-left: 96px; /* space for traffic light buttons (x:20 + ~76px for 3 buttons + gap) */
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+.topbar__isp {
+  font-family: var(--font-sans);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-primary);
+  font-size: var(--text-sm-size);
+}
+
+.topbar__badge {
+  font-family: var(--font-sans);
+  font-size: var(--text-xs-size);
+  font-weight: var(--weight-medium);
+  color: var(--color-text-primary);
+  background: rgba(255, 255, 255, 0.1);
+  padding: 1px 8px;
+  border-radius: var(--shape-pill);
+  white-space: nowrap;
+}
+
+.topbar__meta {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs-size);
+  color: var(--color-text-tertiary);
+}
+
+.topbar__sep {
+  width: 1px;
+  height: 14px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.topbar__right {
+  padding-right: var(--sp-4);
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+/* Make the segmented control match the glass topbar */
+.topbar__right .seg {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.1);
 }
 
 .theme-switcher {
@@ -68,64 +127,10 @@
   z-index: 3 !important;
 }
 
-.location-bar {
-  position: absolute;
-  bottom: var(--sp-4);
-  left: var(--sp-4);
-  background: var(--glass-bg);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  border: var(--glass-border-width) solid var(--glass-border);
-  border-radius: var(--radius-md);
-  padding: var(--sp-3) var(--sp-4);
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-2);
-  font-family: var(--font-mono);
-  font-size: var(--text-sm-size);
-  color: var(--color-text-secondary);
-  box-shadow: var(--glass-shadow);
-  min-width: 200px;
-}
-
-.location-bar__row {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-3);
-}
-
-.location-bar__isp {
-  font-family: var(--font-sans);
-  font-weight: var(--weight-semibold);
-  color: var(--color-text-primary);
-  font-size: var(--text-sm-size);
-}
-
-.location-bar__badge {
-  font-family: var(--font-sans);
-  font-size: var(--text-xs-size);
-  font-weight: var(--weight-medium);
-  color: var(--color-text-primary);
-  background: rgba(255, 255, 255, 0.12);
-  padding: 1px 8px;
-  border-radius: var(--shape-pill);
-  white-space: nowrap;
-}
-
-.location-bar__sep {
-  width: 1px;
-  height: 14px;
-  background: var(--color-border-default);
-}
-
 .laptop-marker {
   object-fit: contain;
   filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.15));
   pointer-events: none;
-}
-
-.location-bar__active {
-  color: var(--color-text-primary);
 }
 
 .sidebar-tabs {
@@ -168,7 +173,7 @@
 
 .elevation-banner {
   position: absolute;
-  top: 52px;
+  top: 64px; /* below 52px topbar + 12px gap */
   left: 50%;
   transform: translateX(-50%);
   z-index: 15;
@@ -191,7 +196,7 @@
 .zoom-controls {
   position: absolute;
   bottom: var(--sp-4);
-  right: calc(var(--sidebar-width, 340px) + var(--sp-4) + var(--sp-4));
+  left: var(--sp-4);
   display: flex;
   flex-direction: column;
   gap: var(--sp-1);
@@ -205,7 +210,7 @@
 .map-btn-tooltip::before {
   content: attr(data-tooltip);
   position: absolute;
-  right: calc(100% + 8px);
+  left: calc(100% + 8px);
   top: 50%;
   transform: translateY(-50%);
   background: var(--glass-bg-elevated);
@@ -321,7 +326,7 @@
 .endpoint-detail-header__icon {
   position: relative;
   width: 52px;
-  height: 52px;
+  height: 48px;
   flex-shrink: 0;
   margin-left: var(--sp-4);
 }

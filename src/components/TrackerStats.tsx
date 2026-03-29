@@ -1,11 +1,13 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Stack } from "@mattmattmattmatt/base/primitives/stack/Stack";
 import { Text } from "@mattmattmattmatt/base/primitives/text/Text";
 import { NumberRoll } from "@mattmattmattmatt/base/primitives/number-roll/NumberRoll";
+import { Pagination } from "@mattmattmattmatt/base/primitives/pagination/Pagination";
 import "@mattmattmattmatt/base/primitives/number-roll/number-roll.css";
 import "@mattmattmattmatt/base/primitives/stack/stack.css";
 import "@mattmattmattmatt/base/primitives/text/text.css";
+import "@mattmattmattmatt/base/primitives/pagination/pagination.css";
 import "./TrackerStats.css";
 
 interface TrackerDomainStat {
@@ -26,13 +28,7 @@ interface Props {
   visible: boolean;
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return "0 B";
-  const k = 1024;
-  const sizes = ["B", "KB", "MB", "GB"];
-  const i = Math.floor(Math.log(Math.max(bytes, 1)) / Math.log(k));
-  return `${(bytes / k ** i).toFixed(1)} ${sizes[Math.min(i, sizes.length - 1)]}`;
-}
+const PAGE_SIZE = 30;
 
 function formatLastSeen(ms: number): string {
   const diff = Date.now() - ms;
@@ -44,6 +40,7 @@ function formatLastSeen(ms: number): string {
 
 export function TrackerStats({ visible }: Props) {
   const [stats, setStats] = useState<TrackerStats | null>(null);
+  const [page, setPage] = useState(1);
 
   const fetchStats = useCallback(async () => {
     try {
@@ -56,11 +53,19 @@ export function TrackerStats({ visible }: Props) {
 
   useEffect(() => {
     if (!visible) return;
-
     fetchStats();
     const interval = setInterval(fetchStats, 5000);
     return () => clearInterval(interval);
   }, [visible, fetchStats]);
+
+  const totalPages = stats ? Math.max(1, Math.ceil(stats.top_domains.length / PAGE_SIZE)) : 1;
+  const safePage = Math.min(page, totalPages);
+
+  const visibleDomains = useMemo(() => {
+    if (!stats) return [];
+    const start = (safePage - 1) * PAGE_SIZE;
+    return stats.top_domains.slice(start, start + PAGE_SIZE);
+  }, [stats, safePage]);
 
   if (!stats) {
     return (
@@ -73,15 +78,15 @@ export function TrackerStats({ visible }: Props) {
   const isEmpty = stats.total_tracker_hits === 0;
 
   return (
-    <Stack direction="vertical" gap="4" align="stretch">
-      <Stack direction="horizontal" gap="4" align="center">
+    <div className="tracker-stats">
+      <Stack direction="horizontal" gap="4" align="center" style={{ flexShrink: 0 }}>
         <Stack direction="vertical" gap="1">
-          <Text size="xs" color="tertiary" font="mono">HITS</Text>
-          <NumberRoll value={stats.total_tracker_hits} minDigits={3} fontSize="var(--text-2xl-size)" commas />
+          <Text size="xs" color="tertiary" font="mono">CONNECTIONS</Text>
+          <NumberRoll value={stats.total_tracker_hits} minDigits={3} fontSize="var(--text-lg-size)" commas />
         </Stack>
         <Stack direction="vertical" gap="1">
-          <Text size="xs" color="tertiary" font="mono">BYTES</Text>
-          <Text size="2xl" weight="semibold">{formatBytes(stats.total_bytes_blocked)}</Text>
+          <Text size="xs" color="tertiary" font="mono">DOMAINS</Text>
+          <NumberRoll value={stats.top_domains.length} minDigits={3} fontSize="var(--text-lg-size)" commas />
         </Stack>
       </Stack>
 
@@ -92,7 +97,7 @@ export function TrackerStats({ visible }: Props) {
         </div>
       ) : (
         <div className="tracker-stats__list">
-          {stats.top_domains.slice(0, 20).map((domain) => (
+          {visibleDomains.map((domain) => (
             <div key={domain.domain} className="tracker-stats__row">
               <Stack direction="vertical" gap="1" style={{ flex: 1, overflow: "hidden" }}>
                 <Text size="sm" weight="medium" truncate={1} font="mono">
@@ -106,8 +111,8 @@ export function TrackerStats({ visible }: Props) {
                 <Stack direction="vertical" gap={"0" as any} align="end">
                   <Text size="xs" font="mono">
                     <NumberRoll value={domain.total_hits} minDigits={1} fontSize="var(--text-xs-size)" duration={300} commas />
+                    <span style={{ opacity: 0.5, marginLeft: 2 }}>hits</span>
                   </Text>
-                  <Text size="xs" color="tertiary">{formatBytes(domain.total_bytes)}</Text>
                 </Stack>
                 <Text size="xs" color="tertiary" style={{ minWidth: 48, textAlign: "right" }}>
                   {formatLastSeen(domain.last_seen_ms)}
@@ -117,6 +122,13 @@ export function TrackerStats({ visible }: Props) {
           ))}
         </div>
       )}
-    </Stack>
+      <Pagination
+        page={safePage}
+        totalPages={totalPages}
+        totalItems={stats.top_domains.length}
+        onPageChange={setPage}
+        size="sm"
+      />
+    </div>
   );
 }

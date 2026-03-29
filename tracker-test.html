@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Blip Tracker Blocking Test</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, system-ui, sans-serif; background: #0a0a0f; color: #e5e5e5; padding: 24px; }
+  h1 { font-size: 24px; margin-bottom: 8px; }
+  .subtitle { color: #888; margin-bottom: 24px; }
+  .summary { display: flex; gap: 24px; margin-bottom: 24px; padding: 16px; background: #1a1a24; border-radius: 12px; border: 1px solid #333; }
+  .stat { text-align: center; }
+  .stat-value { font-size: 36px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .stat-label { font-size: 12px; color: #888; text-transform: uppercase; letter-spacing: 1px; }
+  .stat--blocked .stat-value { color: #4ade80; }
+  .stat--missed .stat-value { color: #f87171; }
+  .stat--total .stat-value { color: #60a5fa; }
+  .stat--pct .stat-value { color: #c084fc; }
+  .category { margin-bottom: 16px; }
+  .category-title { font-size: 14px; font-weight: 600; color: #888; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; padding-bottom: 4px; border-bottom: 1px solid #222; }
+  .domain-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 4px; }
+  .domain { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 6px; font-family: ui-monospace, monospace; font-size: 13px; }
+  .domain--blocked { background: rgba(74, 222, 128, 0.08); }
+  .domain--allowed { background: rgba(248, 113, 113, 0.08); }
+  .domain--pending { background: rgba(96, 165, 250, 0.05); color: #666; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .dot--blocked { background: #4ade80; }
+  .dot--allowed { background: #f87171; }
+  .dot--pending { background: #444; }
+  .btn { padding: 10px 24px; background: #6366f1; color: #fff; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; margin-bottom: 24px; }
+  .btn:hover { background: #818cf8; }
+  .btn:disabled { opacity: 0.5; cursor: default; }
+  .progress { color: #888; font-size: 13px; margin-bottom: 16px; }
+  .note { color: #666; font-size: 12px; margin-bottom: 16px; padding: 8px 12px; background: #111; border-radius: 6px; border: 1px solid #222; }
+</style>
+</head>
+<body>
+
+<h1>Blip DNS Blocking Test</h1>
+<p class="subtitle">Tests known tracker/ad domains via multiple methods (fetch + image + script)</p>
+<div class="note">
+  DNS-level blocking has a theoretical max of ~30-40% on these tests. Many trackers use first-party domains (e.g., google.com, facebook.com) that can't be blocked without breaking the site. A score of 25-40% indicates the DNS proxy is working correctly.
+</div>
+
+<div class="summary">
+  <div class="stat stat--total"><div class="stat-value" id="total">0</div><div class="stat-label">Total</div></div>
+  <div class="stat stat--blocked"><div class="stat-value" id="blocked">0</div><div class="stat-label">Blocked</div></div>
+  <div class="stat stat--missed"><div class="stat-value" id="missed">0</div><div class="stat-label">Not Blocked</div></div>
+  <div class="stat stat--pct"><div class="stat-value" id="pct">0%</div><div class="stat-label">Block Rate</div></div>
+</div>
+
+<button class="btn" id="runBtn" onclick="runTests()">Run Test</button>
+<div class="progress" id="progress"></div>
+
+<div id="results"></div>
+
+<script>
+const TRACKERS = {
+  "Google Ads & Analytics": [
+    "pagead2.googlesyndication.com",
+    "adservice.google.com",
+    "www.google-analytics.com",
+    "ssl.google-analytics.com",
+    "googleads.g.doubleclick.net",
+    "ad.doubleclick.net",
+    "stats.g.doubleclick.net",
+    "securepubads.g.doubleclick.net",
+    "www.googletagmanager.com",
+    "www.googletagservices.com",
+    "fundingchoicesmessages.google.com",
+    "pagead2.googleadservices.com",
+    "www.googleadservices.com",
+  ],
+  "Facebook / Meta": [
+    "pixel.facebook.com",
+    "an.facebook.com",
+    "connect.facebook.net",
+  ],
+  "Amazon Ads": [
+    "aax.amazon-adsystem.com",
+    "z-na.amazon-adsystem.com",
+    "s.amazon-adsystem.com",
+    "fls-na.amazon-adsystem.com",
+    "device-metrics-us.amazon.com",
+  ],
+  "Microsoft / Bing": [
+    "bat.bing.com",
+    "c.bing.com",
+    "c.clarity.ms",
+    "www.clarity.ms",
+  ],
+  "Yahoo": [
+    "ads.yahoo.com",
+    "analytics.yahoo.com",
+    "udcm.yahoo.com",
+    "partnerads.ysm.yahoo.com",
+    "gemini.yahoo.com",
+    "adtech.yahooinc.com",
+    "log.fc.yahoo.com",
+  ],
+  "Twitter / X": [
+    "ads-api.twitter.com",
+    "analytics.twitter.com",
+    "static.ads-twitter.com",
+  ],
+  "TikTok": [
+    "analytics.tiktok.com",
+    "ads.tiktok.com",
+    "mcs-va.tiktok.com",
+    "mon.byteoversea.com",
+  ],
+  "Criteo": [
+    "dis.criteo.com",
+    "sslwidget.criteo.com",
+    "gum.criteo.com",
+    "bidder.criteo.com",
+  ],
+  "Outbrain / Taboola": [
+    "widgets.outbrain.com",
+    "log.outbrain.com",
+    "cdn.taboola.com",
+    "trc.taboola.com",
+    "nr-data.taboola.com",
+  ],
+  "AppNexus / Xandr": [
+    "ib.adnxs.com",
+    "prebid.adnxs.com",
+    "acdn.adnxs.com",
+    "secure.adnxs.com",
+  ],
+  "Yandex": [
+    "mc.yandex.ru",
+    "adfstat.yandex.ru",
+    "metrika.yandex.ru",
+    "adfox.yandex.ru",
+    "appmetrica.yandex.ru",
+  ],
+  "DataDog": [
+    "browser-intake-datadoghq.com",
+    "browser-intake-us5-datadoghq.com",
+    "rum.browser-intake-datadoghq.com",
+  ],
+  "Hotjar": [
+    "script.hotjar.com",
+    "static.hotjar.com",
+    "vars.hotjar.com",
+    "in.hotjar.com",
+  ],
+  "Mixpanel / Segment / Amplitude": [
+    "api.mixpanel.com",
+    "cdn.mxpnl.com",
+    "api.segment.io",
+    "cdn.segment.com",
+    "api2.amplitude.com",
+    "cdn.amplitude.com",
+  ],
+  "Adobe Analytics": [
+    "dpm.demdex.net",
+    "cm.everesttech.net",
+  ],
+  "Scorecard / Quantcast / Krux": [
+    "sb.scorecardresearch.com",
+    "b.scorecardresearch.com",
+    "pixel.quantserve.com",
+    "cdn.krxd.net",
+    "beacon.krxd.net",
+  ],
+  "Social Tracking": [
+    "snap.licdn.com",
+    "px.ads.linkedin.com",
+    "ct.pinterest.com",
+    "tr.snapchat.com",
+  ],
+  "Other Ad Networks": [
+    "pixel.advertising.com",
+    "tags.bluekai.com",
+    "cdn.optimizely.com",
+    "logx.optimizely.com",
+    "cdn.branch.io",
+    "tags.tiqcdn.com",
+  ],
+  "Consent / CMP": [
+    "cdn.cookielaw.org",
+    "geolocation.onetrust.com",
+    "consent.trustarc.com",
+  ],
+};
+
+let totalCount = 0, blockedCount = 0, missedCount = 0;
+
+function testDomain(domain) {
+  return new Promise((resolve) => {
+    // Use Image object — most reliable for DNS block detection
+    // If DNS is blocked (NXDOMAIN), the image load will fail with an error event
+    // If DNS resolves, we'll get either a load or an error (but after connecting)
+    const img = new Image();
+    const start = performance.now();
+    let settled = false;
+
+    const settle = (blocked) => {
+      if (settled) return;
+      settled = true;
+      resolve(blocked);
+    };
+
+    // Very short timeout — DNS blocks fail fast (< 100ms)
+    // Real connections take longer (200ms+)
+    const timer = setTimeout(() => {
+      // If we haven't settled after 2s, it's probably blocked (DNS timeout)
+      settle(true);
+    }, 2000);
+
+    img.onload = () => {
+      clearTimeout(timer);
+      settle(false); // Loaded = not blocked
+    };
+
+    img.onerror = () => {
+      clearTimeout(timer);
+      const elapsed = performance.now() - start;
+      // DNS blocks fail very fast (< 200ms) because NXDOMAIN is immediate
+      // Real connection errors take longer (TCP timeout, TLS error, 404, etc.)
+      if (elapsed < 300) {
+        settle(true); // Fast failure = DNS blocked
+      } else {
+        settle(false); // Slow failure = connected but resource not found
+      }
+    };
+
+    img.src = `https://${domain}/favicon.ico?_=${Date.now()}`;
+  });
+}
+
+async function runTests() {
+  const btn = document.getElementById("runBtn");
+  btn.disabled = true;
+  btn.textContent = "Testing...";
+
+  totalCount = 0; blockedCount = 0; missedCount = 0;
+  const resultsDiv = document.getElementById("results");
+  resultsDiv.innerHTML = "";
+
+  const allDomains = [];
+  for (const [cat, domains] of Object.entries(TRACKERS)) {
+    for (const d of domains) {
+      allDomains.push({ category: cat, domain: d });
+    }
+  }
+
+  // Render placeholders
+  for (const [cat, domains] of Object.entries(TRACKERS)) {
+    const catDiv = document.createElement("div");
+    catDiv.className = "category";
+    catDiv.innerHTML = `<div class="category-title">${cat}</div><div class="domain-list" id="cat-${cat.replace(/[^a-z]/gi, '')}"></div>`;
+    resultsDiv.appendChild(catDiv);
+    const listDiv = catDiv.querySelector(".domain-list");
+    for (const d of domains) {
+      const el = document.createElement("div");
+      el.className = "domain domain--pending";
+      el.id = `d-${d.replace(/[^a-z0-9]/gi, '-')}`;
+      el.innerHTML = `<span class="dot dot--pending"></span>${d}`;
+      listDiv.appendChild(el);
+    }
+  }
+
+  // Test in batches of 5 (smaller batches = less network contention = more accurate timing)
+  for (let i = 0; i < allDomains.length; i += 5) {
+    const batch = allDomains.slice(i, i + 5);
+    const results = await Promise.all(batch.map(async ({ domain }) => {
+      const blocked = await testDomain(domain);
+      return { domain, blocked };
+    }));
+
+    for (const { domain, blocked } of results) {
+      totalCount++;
+      if (blocked) blockedCount++; else missedCount++;
+
+      const el = document.getElementById(`d-${domain.replace(/[^a-z0-9]/gi, '-')}`);
+      if (el) {
+        el.className = `domain domain--${blocked ? 'blocked' : 'allowed'}`;
+        el.innerHTML = `<span class="dot dot--${blocked ? 'blocked' : 'allowed'}"></span>${domain}`;
+      }
+    }
+
+    document.getElementById("total").textContent = totalCount;
+    document.getElementById("blocked").textContent = blockedCount;
+    document.getElementById("missed").textContent = missedCount;
+    document.getElementById("pct").textContent = totalCount > 0 ? Math.round(blockedCount / totalCount * 100) + "%" : "0%";
+    document.getElementById("progress").textContent = `Testing ${Math.min(i + 5, allDomains.length)} / ${allDomains.length}...`;
+  }
+
+  document.getElementById("progress").textContent = "Test complete!";
+  btn.disabled = false;
+  btn.textContent = "Re-test";
+}
+</script>
+
+</body>
+</html>

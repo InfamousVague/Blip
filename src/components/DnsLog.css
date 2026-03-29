@@ -1,3 +1,13 @@
+/* Root — fills sidebar, prevents parent from scrolling */
+.dns-log {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .dns-log__empty {
   display: flex;
   flex-direction: column;
@@ -6,27 +16,46 @@
   padding: var(--sp-8) var(--sp-4);
   gap: var(--sp-3);
   opacity: 0.6;
+  flex: 1;
 }
 
+/* Scrollable list card — fills space between stats and pagination */
 .dns-log__list {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  max-height: calc(100vh - 280px);
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-md);
+  padding: var(--sp-1);
+}
+
+.dns-log__list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.dns-log__list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.dns-log__list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
 }
 
 .dns-log__row {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: var(--sp-2) var(--sp-2);
-  border-radius: var(--radius-sm);
-  transition: background 0.1s ease;
+  padding: var(--sp-2);
+  border-radius: var(--radius-md);
+  transition: background var(--duration-fast) var(--ease-default);
 }
 
 .dns-log__row:hover {
-  background: var(--glass-bg);
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .dns-log__row--blocked {

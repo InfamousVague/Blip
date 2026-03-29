@@ -1,7 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import type { ReactNode } from "react";
-import { ScrollArea } from "@mattmattmattmatt/base/primitives/scroll-area/ScrollArea";
-import "@mattmattmattmatt/base/primitives/scroll-area/scroll-area.css";
 import "./Sidebar.css";
 
 const MIN_WIDTH = 280;
@@ -9,11 +7,13 @@ const MAX_WIDTH = 500;
 const DEFAULT_WIDTH = 340;
 
 interface SidebarProps {
-  children: ReactNode;
+  mode: "network" | "firewall";
+  networkContent: ReactNode;
+  firewallContent: ReactNode;
   onWidthChange?: (width: number) => void;
 }
 
-export function Sidebar({ children, onWidthChange }: SidebarProps) {
+export function Sidebar({ mode, networkContent, firewallContent, onWidthChange }: SidebarProps) {
   const [width, setWidth] = useState(DEFAULT_WIDTH);
   const dragging = useRef(false);
   const startX = useRef(0);
@@ -53,13 +53,28 @@ export function Sidebar({ children, onWidthChange }: SidebarProps) {
   }, []);
 
   return (
-    <div className="sidebar" style={{ width }}>
-      <div className="sidebar__resize-handle" onMouseDown={onMouseDown} />
-      <ScrollArea maxHeight="100%" direction="vertical" style={{ flex: 1, width: "100%" }}>
+    <>
+      {/* Network sidebar */}
+      <div
+        className={`sidebar ${mode === "network" ? "sidebar--active" : "sidebar--hidden"}`}
+        style={{ width }}
+      >
+        <div className="sidebar__resize-handle" onMouseDown={onMouseDown} />
         <div className="sidebar__content">
-          {children}
+          {networkContent}
         </div>
-      </ScrollArea>
-    </div>
+      </div>
+
+      {/* Firewall sidebar */}
+      <div
+        className={`sidebar ${mode === "firewall" ? "sidebar--active" : "sidebar--hidden"}`}
+        style={{ width }}
+      >
+        <div className="sidebar__resize-handle" onMouseDown={onMouseDown} />
+        <div className="sidebar__content">
+          {firewallContent}
+        </div>
+      </div>
+    </>
   );
 }

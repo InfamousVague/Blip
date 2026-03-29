@@ -49,8 +49,6 @@ export function Settings({ open, onClose, themeIndex, onThemeChange }: Props) {
   const [autoCapture, setAutoCapture] = useState(true);
   const [showInactive, setShowInactive] = useState(true);
   const [debugLogging, setDebugLogging] = useState(false);
-  const [elevated, setElevated] = useState(false);
-  const [elevating, setElevating] = useState(false);
   const [neStatus, setNeStatus] = useState<string>("not_installed");
   const [neLoading, setNeLoading] = useState(false);
   const [neError, setNeError] = useState<string | null>(null);
@@ -80,7 +78,6 @@ export function Settings({ open, onClose, themeIndex, onThemeChange }: Props) {
 
   useEffect(() => {
     if (open) {
-      invoke<boolean>("check_elevation").then(setElevated).catch(() => {});
       refreshDiagnostics();
       refreshNeStatus();
     }
@@ -134,50 +131,6 @@ export function Settings({ open, onClose, themeIndex, onThemeChange }: Props) {
                 <div className="settings-row">
                   <div className="settings-row__label">
                     <Text size="sm" weight="medium">
-                      Elevated access
-                      <span style={{
-                        display: "inline-block",
-                        width: 8,
-                        height: 8,
-                        borderRadius: "50%",
-                        background: elevated ? "var(--color-success)" : "var(--color-text-tertiary)",
-                        marginLeft: "var(--sp-2)",
-                        verticalAlign: "middle",
-                      }} />
-                    </Text>
-                    <Text size="xs" color="tertiary">
-                      {elevated
-                        ? "Active — seeing all system connections"
-                        : "Requires macOS administrator password"}
-                    </Text>
-                  </div>
-                  <Button
-                    variant={elevated ? "ghost" : "secondary"}
-                    size="sm"
-                    disabled={elevating}
-                    onClick={async () => {
-                      if (elevated) {
-                        await invoke("disable_elevation");
-                        setElevated(false);
-                        refreshDiagnostics();
-                      } else {
-                        setElevating(true);
-                        try {
-                          const granted = await invoke<boolean>("request_elevation");
-                          setElevated(granted);
-                          refreshDiagnostics();
-                        } catch { /* user cancelled */ }
-                        setElevating(false);
-                      }
-                    }}
-                  >
-                    {elevating ? "Requesting..." : elevated ? "Disable" : "Enable"}
-                  </Button>
-                </div>
-
-                <div className="settings-row">
-                  <div className="settings-row__label">
-                    <Text size="sm" weight="medium">
                       Network Extension
                       <span style={{
                         display: "inline-block",
@@ -196,7 +149,7 @@ export function Settings({ open, onClose, themeIndex, onThemeChange }: Props) {
                         ? "Active — capturing all connections in real-time"
                         : neStatus === "pending_approval"
                         ? "Pending — approve in System Settings → Privacy & Security"
-                        : "Coming soon — will replace elevated access with system-wide monitoring"}
+                        : "Enable to capture all connections system-wide without elevated access"}
                     </Text>
                     {neError && (
                       <Text size="xs" style={{ color: "var(--color-danger)", marginTop: "var(--sp-1)" }}>
@@ -208,7 +161,7 @@ export function Settings({ open, onClose, themeIndex, onThemeChange }: Props) {
                     <Button
                       variant={neStatus === "active" ? "ghost" : "secondary"}
                       size="sm"
-                      disabled={neLoading || neStatus === "unavailable" || neStatus === "not_installed" || neStatus === "inactive"}
+                      disabled={neLoading}
                       onClick={async () => {
                         setNeLoading(true);
                         setNeError(null);

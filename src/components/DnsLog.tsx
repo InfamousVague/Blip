@@ -1,9 +1,12 @@
+import { useState, useMemo } from "react";
 import { Stack } from "@mattmattmattmatt/base/primitives/stack/Stack";
 import { Text } from "@mattmattmattmatt/base/primitives/text/Text";
 import { NumberRoll } from "@mattmattmattmatt/base/primitives/number-roll/NumberRoll";
+import { Pagination } from "@mattmattmattmatt/base/primitives/pagination/Pagination";
 import "@mattmattmattmatt/base/primitives/stack/stack.css";
 import "@mattmattmattmatt/base/primitives/text/text.css";
 import "@mattmattmattmatt/base/primitives/number-roll/number-roll.css";
+import "@mattmattmattmatt/base/primitives/pagination/pagination.css";
 import type { DnsQueryLogEntry, DnsStats } from "../types/connection";
 import "./DnsLog.css";
 
@@ -12,28 +15,39 @@ interface Props {
   stats: DnsStats;
 }
 
+const PAGE_SIZE = 30;
+
 function formatTime(ms: number): string {
   const d = new Date(ms);
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
 export function DnsLog({ log, stats }: Props) {
+  const [page, setPage] = useState(1);
   const isEmpty = stats.total_queries === 0;
 
+  const totalPages = Math.max(1, Math.ceil(log.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+
+  const visibleLog = useMemo(() => {
+    const start = (safePage - 1) * PAGE_SIZE;
+    return log.slice(start, start + PAGE_SIZE);
+  }, [log, safePage]);
+
   return (
-    <Stack direction="vertical" gap="4" align="stretch">
-      <Stack direction="horizontal" gap="4" align="center">
+    <div className="dns-log">
+      <Stack direction="horizontal" gap="4" align="center" style={{ flexShrink: 0 }}>
         <Stack direction="vertical" gap="1">
           <Text size="xs" color="tertiary" font="mono">QUERIES</Text>
-          <NumberRoll value={stats.total_queries} minDigits={3} fontSize="var(--text-2xl-size)" commas />
+          <NumberRoll value={stats.total_queries} minDigits={3} fontSize="var(--text-lg-size)" commas />
         </Stack>
         <Stack direction="vertical" gap="1">
           <Text size="xs" color="tertiary" font="mono">UNIQUE</Text>
-          <NumberRoll value={stats.unique_domains} minDigits={3} fontSize="var(--text-2xl-size)" commas />
+          <NumberRoll value={stats.unique_domains} minDigits={3} fontSize="var(--text-lg-size)" commas />
         </Stack>
         <Stack direction="vertical" gap="1">
           <Text size="xs" color="tertiary" font="mono">BLOCKED</Text>
-          <NumberRoll value={stats.blocked_count} minDigits={1} fontSize="var(--text-2xl-size)" commas />
+          <NumberRoll value={stats.blocked_count} minDigits={1} fontSize="var(--text-lg-size)" commas />
         </Stack>
       </Stack>
 
@@ -44,12 +58,12 @@ export function DnsLog({ log, stats }: Props) {
       {isEmpty ? (
         <div className="dns-log__empty">
           <Text size="sm" color="tertiary">
-            No DNS queries captured yet. Requires elevated access.
+            No DNS queries captured yet. DNS monitoring activates with the network extension.
           </Text>
         </div>
       ) : (
         <div className="dns-log__list">
-          {log.map((entry, i) => (
+          {visibleLog.map((entry, i) => (
             <div
               key={`${entry.domain}-${entry.timestamp_ms}-${i}`}
               className={`dns-log__row${entry.is_blocked ? " dns-log__row--blocked" : ""}`}
@@ -90,6 +104,13 @@ export function DnsLog({ log, stats }: Props) {
           ))}
         </div>
       )}
-    </Stack>
+      <Pagination
+        page={safePage}
+        totalPages={totalPages}
+        totalItems={log.length}
+        onPageChange={setPage}
+        size="sm"
+      />
+    </div>
   );
 }

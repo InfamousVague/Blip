@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Stack } from "@mattmattmattmatt/base/primitives/stack/Stack";
 import { Text } from "@mattmattmattmatt/base/primitives/text/Text";
@@ -18,44 +18,63 @@ import "./SetupPrompt.css";
 const FEATURES = [
   {
     icon: shieldCheck,
-    title: "See all system connections",
-    description: "Monitor traffic from all apps, not just yours",
+    title: "Block trackers & ads at the network level",
+    description: "Detect and block tracking domains before they load",
   },
   {
     icon: activity,
-    title: "Real-time byte tracking",
-    description: "See exactly how much data each connection transfers",
+    title: "See every connection in real-time",
+    description: "System-wide monitoring of all apps and services",
   },
   {
     icon: zap,
-    title: "Better connection detection",
-    description: "Catch short-lived connections that are currently missed",
+    title: "Identify who your data goes to",
+    description: "Map connections to companies, countries, and data centers",
   },
 ];
 
 interface Props {
-  onComplete: (elevated: boolean) => void;
+  onComplete: (neEnabled: boolean) => void;
 }
 
 export function SetupPrompt({ onComplete }: Props) {
   const [loading, setLoading] = useState(false);
   const [dontShowAgain, setDontShowAgain] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [neAlreadyActive, setNeAlreadyActive] = useState(false);
+
+  useEffect(() => {
+    // Check if NE is already active
+    invoke<string>("get_network_extension_status")
+      .then((result) => {
+        try {
+          const parsed = JSON.parse(result);
+          if (parsed.status === "active") {
+            setNeAlreadyActive(true);
+          }
+        } catch {}
+      })
+      .catch(() => {});
+  }, []);
 
   const handleEnable = async () => {
     setLoading(true);
     setError(null);
     try {
-      const granted = await invoke<boolean>("request_elevation");
-      if (granted) {
-        localStorage.setItem("blip-setup-dismissed", "permanent");
-        onComplete(true);
-      } else {
-        setError("Permission was denied. You can enable this later in Settings.");
-      }
+      const result = await invoke<string>("activate_network_extension");
+      try {
+        const parsed = JSON.parse(result);
+        if (parsed.status === "error" && parsed.error) {
+          setError(parsed.error);
+          setLoading(false);
+          return;
+        }
+      } catch {}
+      localStorage.setItem("blip-setup-dismissed", "permanent");
+      onComplete(true);
     } catch (e) {
-      setError("Failed to request permissions. You can try again in Settings.");
-      console.error("Elevation error:", e);
+      setError("Failed to activate. You can try again in Settings.");
+      console.error("NE activation error:", e);
     }
     setLoading(false);
   };
@@ -69,15 +88,20 @@ export function SetupPrompt({ onComplete }: Props) {
     onComplete(false);
   };
 
+  // If NE is already active, auto-dismiss
+  if (neAlreadyActive) {
+    return null;
+  }
+
   return (
     <div className="setup-backdrop">
       <div className="setup-panel">
         <Stack direction="vertical" gap="6" align="stretch">
           <Stack direction="vertical" gap="3" align="center">
-            <Text size="xl" weight="semibold">Enhance Network Monitoring</Text>
+            <Text size="xl" weight="semibold">Enable Network Monitor</Text>
             <Text size="sm" color="secondary" style={{ textAlign: "center", paddingBottom: "var(--sp-2)" }}>
-              Blip works better with administrator access. This enables deeper
-              visibility into your network traffic.
+              Blip uses a system extension to monitor all network traffic.
+              macOS will ask you to approve it in System Settings.
             </Text>
           </Stack>
 
@@ -108,7 +132,7 @@ export function SetupPrompt({ onComplete }: Props) {
               onClick={handleEnable}
               disabled={loading}
             >
-              {loading ? "Requesting access..." : "Enable Enhanced Monitoring"}
+              {loading ? "Activating..." : "Enable Network Monitor"}
             </Button>
             <Button
               variant="ghost"
