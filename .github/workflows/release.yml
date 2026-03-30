@@ -1,13 +1,14 @@
 name: Release
 
 on:
+  workflow_dispatch:
   push:
     tags:
-      - 'v*'
+      - 'v*.*.*'
 
 jobs:
   release:
-    runs-on: macos-latest
+    runs-on: macos-14
     permissions:
       contents: write
 
@@ -24,7 +25,7 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
+          targets: aarch64-apple-darwin
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
@@ -50,7 +51,7 @@ jobs:
       - name: Build Network Extension
         run: cd src-tauri && bash scripts/build-ne.sh
 
-      - name: Build Tauri app
+      - name: Build Tauri app and create release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -64,15 +65,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: 'Blip ${{ github.ref_name }}'
-          releaseBody: 'See the assets to download and install this version.'
+          releaseName: "Blip ${{ github.ref_name }}"
+          releaseBody: "See the assets to download and install this version."
           releaseDraft: false
           prerelease: false
-
-      - name: Post-build: embed NE and re-sign
-        env:
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: cd src-tauri && bash scripts/post-build.sh
