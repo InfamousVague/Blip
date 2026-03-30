@@ -1,2 +1,8 @@
+# Linguist overrides — tell GitHub what this repo actually is
+src-tauri/Cargo.lock linguist-generated
+package-lock.json linguist-generated
+*.pbxproj linguist-generated
+src/assets/*.json linguist-generated
+scripts/*.py linguist-vendored
 *.pmtiles filter=lfs diff=lfs merge=lfs -text
 *.mmdb filter=lfs diff=lfs merge=lfs -text
