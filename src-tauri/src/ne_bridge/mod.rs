@@ -10,10 +10,11 @@ use crate::enrichment::Enricher;
 use crate::geoip::GeoIp;
 use std::path::PathBuf;
 use std::sync::Arc;
+use tauri::Emitter;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixListener;
 use tokio::sync::broadcast;
-use types::{NEConnectionEvent, NEDnsEvent, NEEvent};
+use types::{NEConnectionEvent, NEDnsEvent, NEEvent, NEFlowUpdate, NEListeningPort};
 use uuid::Uuid;
 
 /// Messages sent from the app to connected NE clients.
@@ -46,6 +47,7 @@ impl NEBridge {
         dns_mapping: SharedDnsMapping,
         enricher: Arc<std::sync::Mutex<Enricher>>,
         db: Arc<Database>,
+        app_handle: tauri::AppHandle,
     ) -> Result<(), String> {
         // Remove stale socket file
         let _ = std::fs::remove_file(&self.socket_path);
@@ -77,6 +79,7 @@ impl NEBridge {
                         let dns_mapping = dns_mapping.clone();
                         let enricher = enricher.clone();
                         let db = db.clone();
+                        let app_handle = app_handle.clone();
                         let outbound_tx = outbound_tx.clone();
                         let mut outbound_rx = outbound_tx.subscribe();
 
@@ -88,7 +91,13 @@ impl NEBridge {
                                 if let Ok(rules) = db.get_firewall_rules() {
                                     let rule_entries: Vec<serde_json::Value> = rules.iter()
                                         .filter(|r| r.action != "unspecified")
-                                        .map(|r| serde_json::json!({"app_id": r.app_id, "action": r.action}))
+                                        .map(|r| {
+                                            let mut entry = serde_json::json!({"app_id": r.app_id, "action": r.action});
+                                            if let Some(ref d) = r.domain { entry["domain"] = serde_json::json!(d); }
+                                            if let Some(p) = r.port { entry["port"] = serde_json::json!(p); }
+                                            if let Some(ref p) = r.protocol { entry["protocol"] = serde_json::json!(p); }
+                                            entry
+                                        })
                                         .collect();
                                     if !rule_entries.is_empty() {
                                         let msg = serde_json::json!({
@@ -165,12 +174,26 @@ impl NEBridge {
                                                 // Track app for firewall sidebar auto-discovery
                                                 let app_id = conn_event.source_app_id.clone();
                                                 let is_apple = app_id.starts_with("com.apple.");
-                                                let _ = db.upsert_app_connection(
+                                                let is_new_app = db.upsert_app_connection(
                                                     &app_id,
                                                     &app_id, // Use bundle ID as name for now
                                                     None,
                                                     is_apple,
-                                                );
+                                                ).unwrap_or(false);
+
+                                                // Emit alert event for new apps when in alert mode
+                                                if is_new_app {
+                                                    if let Ok(Some(mode)) = db.get_preference("firewall_mode") {
+                                                        if mode == "alert" {
+                                                            let _ = app_handle.emit("firewall-new-app", serde_json::json!({
+                                                                "app_id": &app_id,
+                                                                "dest_ip": &conn_event.dest_ip,
+                                                                "dest_port": conn_event.dest_port,
+                                                                "protocol": &conn_event.protocol,
+                                                            }));
+                                                        }
+                                                    }
+                                                }
 
                                                 process_ne_connection(
                                                     conn_event,
@@ -198,6 +221,16 @@ impl NEBridge {
                                                 if !new_blocked_ips.is_empty() {
                                                     let _ = outbound_tx.send(NEOutboundMsg::BlockedIPs(new_blocked_ips));
                                                 }
+                                            }
+                                        }
+                                        "flow_update" => {
+                                            if let Some(flow) = event.flow_update {
+                                                process_ne_flow_update(flow, &store).await;
+                                            }
+                                        }
+                                        "listening_ports" => {
+                                            if let Some(ports) = event.listening_ports {
+                                                process_ne_listening_ports(ports, &app_handle).await;
                                             }
                                         }
                                         other => {
@@ -405,4 +438,42 @@ async fn process_ne_connection(
             });
         }
     }
+}
+
+/// Process a flow byte update from the NE.
+/// Updates bytes_sent/bytes_received on matching active connections.
+async fn process_ne_flow_update(
+    flow: NEFlowUpdate,
+    store: &ConnectionStore,
+) {
+    let mut state = store.write().unwrap();
+    for conn in state.connections.values_mut() {
+        if conn.dest_ip == flow.dest_ip
+            && conn.dest_port == flow.dest_port
+            && conn.active
+        {
+            // NE reports cumulative bytes — accept directly
+            conn.bytes_received = flow.bytes_in;
+            conn.bytes_sent = flow.bytes_out;
+            conn.last_seen_ms = flow.timestamp_ms;
+
+            // Also update process name from NE if more specific
+            if (conn.process_name.is_none() || conn.process_name.as_deref() == Some("?"))
+                && !flow.source_app_id.is_empty()
+            {
+                conn.process_name = Some(flow.source_app_id.clone());
+            }
+            break;
+        }
+    }
+}
+
+/// Process listening ports reported by the NE and emit to frontend.
+async fn process_ne_listening_ports(
+    ports: Vec<NEListeningPort>,
+    app_handle: &tauri::AppHandle,
+) {
+    let _ = app_handle.emit("ne-listening-ports", serde_json::json!({
+        "ports": ports,
+    }));
 }

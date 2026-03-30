@@ -26,9 +26,11 @@ export interface BlockedMarkerData {
 }
 
 export interface ParticleData {
-  path: [number, number][];
+  position: [number, number];
   color: [number, number, number, number];
   width: number;
+  /** 0 = upload (user→endpoint), 1 = download (endpoint→user), 2 = neutral */
+  direction?: number;
 }
 
 export interface EndpointData {
@@ -90,7 +92,9 @@ export function useArcAnimation(
   // Compute arc metadata only when connections change (not every frame)
   const arcMetas = useMemo<ArcMeta[]>(() => {
     if (!userLocation) return [];
-    return connections.map((conn) => {
+    return connections
+    .filter((conn) => conn.dest_lat !== 0 || conn.dest_lon !== 0) // skip ungeolocated
+    .map((conn) => {
       const target: [number, number] = [conn.dest_lon, conn.dest_lat];
       const distKm = greatCircleDistance(userLocation[1], userLocation[0], conn.dest_lat, conn.dest_lon);
       const classified = classifyEndpoint(conn.domain, conn.process_name, conn.dest_ip);
@@ -274,29 +278,79 @@ export function useArcAnimation(
           midpoint,
         });
 
-        // Particle for active connections only
+        // Bidirectional particles for active connections — particle count scales with throughput
         if (conn.active) {
-          const segLen = 0.06;
-          const numPts = 5;
           const pingVal = conn.ping_ms ?? 100;
           const cycleSec = Math.max(0.8, Math.min(5, pingVal / 50));
           const phase = (conn.first_seen_ms * 0.001 + i * 0.37) % 1;
-          const t0 = ((now * 0.001 / cycleSec + phase) % 1);
-          const path: [number, number][] = [];
-          for (let j = 0; j <= numPts; j++) {
-            const t = Math.max(0, Math.min(1, t0 + (j / numPts) * segLen));
-            const pt = pointOnArc(loc, meta.target, meta.height, t);
-            path.push([pt[0], pt[1]]);
-          }
-          const totalBytes = conn.bytes_sent + conn.bytes_received;
-          const logBytes = totalBytes > 0 ? Math.log10(Math.max(totalBytes, 1)) : 0;
-          const particleWidth = Math.max(1, Math.min(8, 1 + logBytes * 1.1));
+          const hasByteData = conn.bytes_sent > 0 || conn.bytes_received > 0;
 
-          particles.push({
-            path,
-            color: hexToRgba(meta.svcColor, 0.85),
-            width: particleWidth,
-          });
+          if (hasByteData) {
+            const totalBytes = conn.bytes_sent + conn.bytes_received;
+
+            // Scale particle count by throughput: 1 particle for < 1KB, up to 5 for > 10MB
+            const logTotal = Math.log10(Math.max(totalBytes, 1));
+            const particleCount = Math.max(1, Math.min(5, Math.floor(logTotal / 1.5)));
+
+            // Service-tinted colors: blend service color with upload/download indicator
+            const svcRgba = hexToRgba(meta.svcColor, 0.9);
+
+            // Upload particles: user → endpoint (service color tinted pink)
+            if (conn.bytes_sent > 0) {
+              const logBytes = Math.log10(Math.max(conn.bytes_sent, 1));
+              const particleWidth = Math.max(2, Math.min(8, 1.5 + logBytes * 0.9));
+              const upCount = Math.max(1, Math.ceil(particleCount * (conn.bytes_sent / totalBytes)));
+
+              for (let p = 0; p < upCount; p++) {
+                const pPhase = (phase + p * (1 / upCount)) % 1;
+                const t0 = ((now * 0.001 / cycleSec + pPhase) % 1);
+                const pt = pointOnArc(loc, meta.target, meta.height, t0);
+                // Blend service color with pink for upload
+                const r = Math.round(svcRgba[0] * 0.4 + 236 * 0.6);
+                const g = Math.round(svcRgba[1] * 0.4 + 72 * 0.6);
+                const b = Math.round(svcRgba[2] * 0.4 + 153 * 0.6);
+                particles.push({
+                  position: [pt[0], pt[1]],
+                  color: [r, g, b, 217],
+                  width: particleWidth - p * 0.3, // trailing particles slightly smaller
+                  direction: 0,
+                });
+              }
+            }
+
+            // Download particles: endpoint → user (service color tinted indigo)
+            if (conn.bytes_received > 0) {
+              const logBytes = Math.log10(Math.max(conn.bytes_received, 1));
+              const particleWidth = Math.max(2, Math.min(8, 1.5 + logBytes * 0.9));
+              const downCount = Math.max(1, Math.ceil(particleCount * (conn.bytes_received / totalBytes)));
+
+              for (let p = 0; p < downCount; p++) {
+                const pPhase = (phase + 0.5 + p * (1 / downCount)) % 1;
+                const tDown = ((now * 0.001 / cycleSec + pPhase) % 1);
+                const pt = pointOnArc(loc, meta.target, meta.height, 1 - tDown);
+                // Blend service color with indigo for download
+                const r = Math.round(svcRgba[0] * 0.4 + 99 * 0.6);
+                const g = Math.round(svcRgba[1] * 0.4 + 102 * 0.6);
+                const b = Math.round(svcRgba[2] * 0.4 + 241 * 0.6);
+                particles.push({
+                  position: [pt[0], pt[1]],
+                  color: [r, g, b, 217],
+                  width: particleWidth - p * 0.3,
+                  direction: 1,
+                });
+              }
+            }
+          } else {
+            // No byte data yet — show a single service-colored particle
+            const t0 = ((now * 0.001 / cycleSec + phase) % 1);
+            const pt = pointOnArc(loc, meta.target, meta.height, t0);
+            particles.push({
+              position: [pt[0], pt[1]],
+              color: hexToRgba(meta.svcColor, 0.85),
+              width: 2,
+              direction: 2,
+            });
+          }
         }
       }
 

@@ -1,0 +1,107 @@
+/* Menu bar dropdown — glassmorphism container */
+
+/* Override index.css opaque background — needed for window transparency */
+html, body, #menubar-root {
+  background: transparent !important;
+  overflow: hidden;
+}
+
+#menubar-root {
+  padding: var(--sp-2);
+}
+
+.menubar-app {
+  width: 100%;
+  padding: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  background: linear-gradient(160deg, rgba(22, 18, 32, 0.94) 0%, rgba(18, 18, 26, 0.92) 40%, rgba(20, 18, 30, 0.94) 100%);
+  backdrop-filter: blur(40px) saturate(1.8);
+  -webkit-backdrop-filter: blur(40px) saturate(1.8);
+  border: 1px solid rgba(140, 120, 255, 0.10);
+  border-radius: var(--radius-lg);
+  box-shadow:
+    0 0 0 0.5px rgba(255, 255, 255, 0.06),
+    0 16px 48px rgba(0, 0, 0, 0.6),
+    0 4px 16px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  overflow: hidden;
+  position: relative;
+}
+
+/* Inner highlight glow — same as sidebar */
+.menubar-app::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, transparent 40%),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 0%, transparent 30%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.menubar-app > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Radar — centered, scaled down from 180px to 140px */
+.menubar-radar {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin: 0 auto;
+}
+
+/* Override radar-minimap positioning for menu bar context */
+.menubar-radar .radar-minimap {
+  position: static;
+  transform: scale(0.78);
+  transform-origin: center center;
+  margin: -18px 0;
+}
+
+/* Vertical divider between stat columns */
+.menubar-divider {
+  width: 1px;
+  height: 28px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* Tracker stats row */
+.menubar-tracker-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 50, 50, 0.06);
+  border: 1px solid rgba(255, 50, 50, 0.10);
+}
+
+/* Open Blip button — prominent */
+.menubar-open-btn {
+  width: 100%;
+  padding: var(--sp-3) !important;
+  font-size: var(--text-sm-size) !important;
+  font-weight: var(--weight-semibold) !important;
+  border-radius: var(--radius-md) !important;
+}
+
+/* Glass overrides for the menubar — same as sidebar */
+.menubar-app .separator--horizontal {
+  border-top-color: rgba(255, 255, 255, 0.08);
+}
+
+.menubar-app .btn--secondary {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.menubar-app .btn--secondary:hover {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.18);
+}

@@ -1,5 +1,7 @@
 import type { StyleSpecification } from "maplibre-gl";
 
+export type MapMode = "vector" | "satellite";
+
 export interface MapTheme {
   name: string;
   bg: string;
@@ -27,12 +29,58 @@ const vectorSource = {
   },
 };
 
+
 const glyphs = "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf";
 
-export function buildMapStyle(theme: MapTheme): StyleSpecification {
+// Shared label layers (used by all modes)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function labelLayers(theme: MapTheme, haloWidth = 1): any[] {
+  return [
+    {
+      id: "label-country", type: "symbol" as const, source: "openmaptiles", "source-layer": "place",
+      filter: ["==", "class", "country"],
+      layout: { "text-field": "{name:latin}", "text-font": ["Noto Sans Regular"], "text-size": ["interpolate", ["linear"], ["zoom"], 2, 10, 5, 14], "text-transform": "uppercase" as const, "text-letter-spacing": 0.15, "text-max-width": 8 },
+      paint: { "text-color": theme.labelCountry, "text-halo-color": theme.haloColor, "text-halo-width": 1.5 + haloWidth, "text-opacity": 0.6 },
+    },
+    {
+      id: "label-city", type: "symbol" as const, source: "openmaptiles", "source-layer": "place",
+      filter: ["==", "class", "city"],
+      layout: { "text-field": "{name:latin}", "text-font": ["Noto Sans Regular"], "text-size": ["interpolate", ["linear"], ["zoom"], 4, 9, 8, 13, 12, 16], "text-max-width": 8 },
+      paint: { "text-color": theme.labelCity, "text-halo-color": theme.haloColor, "text-halo-width": 1.2 + haloWidth, "text-opacity": 0.5 },
+      minzoom: 4,
+    },
+    {
+      id: "label-town", type: "symbol" as const, source: "openmaptiles", "source-layer": "place",
+      filter: ["==", "class", "town"],
+      layout: { "text-field": "{name:latin}", "text-font": ["Noto Sans Regular"], "text-size": ["interpolate", ["linear"], ["zoom"], 7, 8, 12, 12], "text-max-width": 8 },
+      paint: { "text-color": theme.labelTown, "text-halo-color": theme.haloColor, "text-halo-width": 1 + haloWidth, "text-opacity": 0.4 },
+      minzoom: 7,
+    },
+  ];
+}
+
+// Shared road + boundary layers
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function overlayLayers(theme: MapTheme): any[] {
+  return [
+    // Coastline — bright outline where land meets water
+    { id: "coastline", type: "line" as const, source: "openmaptiles", "source-layer": "water", paint: { "line-color": theme.boundary, "line-width": ["interpolate", ["linear"], ["zoom"], 0, 0.5, 4, 1.0, 8, 1.5], "line-opacity": 0.5 } },
+    // Country and state boundaries
+    { id: "boundary-country", type: "line" as const, source: "openmaptiles", "source-layer": "boundary", filter: ["all", ["==", "admin_level", 2], ["!=", "maritime", 1]], paint: { "line-color": theme.boundary, "line-width": 0.8, "line-opacity": 0.4 } },
+    { id: "boundary-state", type: "line" as const, source: "openmaptiles", "source-layer": "boundary", filter: ["==", "admin_level", 4], paint: { "line-color": theme.boundaryState, "line-width": 0.6, "line-opacity": 0.3, "line-dasharray": [3, 2] } },
+    // Roads
+    { id: "road-highway", type: "line" as const, source: "openmaptiles", "source-layer": "transportation", filter: ["==", "class", "motorway"], paint: { "line-color": theme.road, "line-width": ["interpolate", ["linear"], ["zoom"], 5, 0.5, 10, 1.5, 14, 3], "line-opacity": 0.5 }, minzoom: 5 },
+    { id: "road-major", type: "line" as const, source: "openmaptiles", "source-layer": "transportation", filter: ["in", "class", "trunk", "primary"], paint: { "line-color": theme.roadMinor, "line-width": ["interpolate", ["linear"], ["zoom"], 7, 0.3, 12, 1, 14, 2], "line-opacity": 0.4 }, minzoom: 7 },
+    { id: "road-minor", type: "line" as const, source: "openmaptiles", "source-layer": "transportation", filter: ["in", "class", "secondary", "tertiary", "minor"], paint: { "line-color": theme.roadMinor, "line-width": ["interpolate", ["linear"], ["zoom"], 10, 0.2, 14, 1], "line-opacity": 0.3 }, minzoom: 10 },
+  ];
+}
+
+/** Vector-only style (current default) */
+export function buildMapStyle(theme: MapTheme, projection: "mercator" | "globe" = "mercator"): StyleSpecification {
   return {
     version: 8,
     name: `Blip ${theme.name}`,
+    projection: { type: projection } as any,
     sources: vectorSource,
     glyphs,
     layers: [
@@ -41,51 +89,28 @@ export function buildMapStyle(theme: MapTheme): StyleSpecification {
       { id: "water-ocean", type: "fill", source: "openmaptiles", "source-layer": "water", filter: ["==", "class", "ocean"], paint: { "fill-color": theme.ocean } },
       { id: "landcover", type: "fill", source: "openmaptiles", "source-layer": "landcover", paint: { "fill-color": theme.landcover, "fill-opacity": theme.landcoverOpacity } },
       { id: "landuse", type: "fill", source: "openmaptiles", "source-layer": "landuse", paint: { "fill-color": theme.landuse, "fill-opacity": theme.landuseOpacity } },
-      { id: "boundary-country", type: "line", source: "openmaptiles", "source-layer": "boundary", filter: ["all", ["==", "admin_level", 2], ["!=", "maritime", 1]], paint: { "line-color": theme.boundary, "line-width": 0.8, "line-opacity": 0.5 } },
-      { id: "boundary-state", type: "line", source: "openmaptiles", "source-layer": "boundary", filter: ["==", "admin_level", 4], paint: { "line-color": theme.boundaryState, "line-width": 0.6, "line-opacity": 0.4, "line-dasharray": [3, 2] } },
-      { id: "road-highway", type: "line", source: "openmaptiles", "source-layer": "transportation", filter: ["==", "class", "motorway"], paint: { "line-color": theme.road, "line-width": ["interpolate", ["linear"], ["zoom"], 5, 0.5, 10, 1.5, 14, 3], "line-opacity": 0.6 }, minzoom: 5 },
-      { id: "road-major", type: "line", source: "openmaptiles", "source-layer": "transportation", filter: ["in", "class", "trunk", "primary"], paint: { "line-color": theme.roadMinor, "line-width": ["interpolate", ["linear"], ["zoom"], 7, 0.3, 12, 1, 14, 2], "line-opacity": 0.5 }, minzoom: 7 },
-      { id: "road-minor", type: "line", source: "openmaptiles", "source-layer": "transportation", filter: ["in", "class", "secondary", "tertiary", "minor"], paint: { "line-color": theme.roadMinor, "line-width": ["interpolate", ["linear"], ["zoom"], 10, 0.2, 14, 1], "line-opacity": 0.4 }, minzoom: 10 },
+      ...overlayLayers(theme),
       { id: "building", type: "fill", source: "openmaptiles", "source-layer": "building", paint: { "fill-color": theme.building, "fill-opacity": 0.5 }, minzoom: 13 },
-      // Labels
-      {
-        id: "label-country", type: "symbol", source: "openmaptiles", "source-layer": "place",
-        filter: ["==", "class", "country"],
-        layout: { "text-field": "{name:latin}", "text-font": ["Noto Sans Regular"], "text-size": ["interpolate", ["linear"], ["zoom"], 2, 10, 5, 14], "text-transform": "uppercase" as const, "text-letter-spacing": 0.15, "text-max-width": 8 },
-        paint: { "text-color": theme.labelCountry, "text-halo-color": theme.haloColor, "text-halo-width": 1.5, "text-opacity": 0.85 },
-      },
-      {
-        id: "label-city", type: "symbol", source: "openmaptiles", "source-layer": "place",
-        filter: ["==", "class", "city"],
-        layout: { "text-field": "{name:latin}", "text-font": ["Noto Sans Regular"], "text-size": ["interpolate", ["linear"], ["zoom"], 4, 9, 8, 13, 12, 16], "text-max-width": 8 },
-        paint: { "text-color": theme.labelCity, "text-halo-color": theme.haloColor, "text-halo-width": 1.2, "text-opacity": 0.8 },
-        minzoom: 4,
-      },
-      {
-        id: "label-town", type: "symbol", source: "openmaptiles", "source-layer": "place",
-        filter: ["==", "class", "town"],
-        layout: { "text-field": "{name:latin}", "text-font": ["Noto Sans Regular"], "text-size": ["interpolate", ["linear"], ["zoom"], 7, 8, 12, 12], "text-max-width": 8 },
-        paint: { "text-color": theme.labelTown, "text-halo-color": theme.haloColor, "text-halo-width": 1, "text-opacity": 0.7 },
-        minzoom: 7,
-      },
+      ...labelLayers(theme),
     ],
   };
 }
+
 
 // ---- 10 Themes based on popular VS Code themes ----
 
 export const themes: MapTheme[] = [
   {
     name: "Default Dark",
-    bg: "#0A0A0C", water: "#0E0E12", ocean: "#0C0C10",
+    bg: "#111114", water: "#060608", ocean: "#04040a",
     landcover: "#1a1a1e", landcoverOpacity: 0.6, landuse: "#161618", landuseOpacity: 0.5,
     boundary: "#333", boundaryState: "#2a2a2a", road: "#2a2a2a", roadMinor: "#222",
     building: "#1a1a1e", labelCountry: "#666", labelCity: "#555", labelTown: "#444",
-    haloColor: "rgba(0,0,0,0.8)",
+    haloColor: "rgba(0,0,0,0.9)",
   },
   {
     name: "One Dark Pro",
-    bg: "#282c34", water: "#1e2228", ocean: "#1a1e24",
+    bg: "#282c34", water: "#14181e", ocean: "#10141a",
     landcover: "#2c313a", landcoverOpacity: 0.6, landuse: "#2a2f38", landuseOpacity: 0.5,
     boundary: "#4b5263", boundaryState: "#3e4452", road: "#3e4452", roadMinor: "#353b48",
     building: "#2c313a", labelCountry: "#abb2bf", labelCity: "#8a919d", labelTown: "#636d83",
@@ -93,7 +118,7 @@ export const themes: MapTheme[] = [
   },
   {
     name: "Dracula",
-    bg: "#282a36", water: "#1e1f29", ocean: "#191a24",
+    bg: "#282a36", water: "#141520", ocean: "#10111a",
     landcover: "#2d2f3d", landcoverOpacity: 0.6, landuse: "#2a2c3a", landuseOpacity: 0.5,
     boundary: "#6272a4", boundaryState: "#4d5b86", road: "#4d5b86", roadMinor: "#3d4a6e",
     building: "#2d2f3d", labelCountry: "#bd93f9", labelCity: "#8be9fd", labelTown: "#6272a4",
@@ -158,7 +183,7 @@ export const themes: MapTheme[] = [
   // ---- Monochrome variants ----
   {
     name: "Midnight",
-    bg: "#000000", water: "#050508", ocean: "#030306",
+    bg: "#080808", water: "#020204", ocean: "#010103",
     landcover: "#0e0e0e", landcoverOpacity: 0.7, landuse: "#0a0a0a", landuseOpacity: 0.6,
     boundary: "#222", boundaryState: "#1a1a1a", road: "#1a1a1a", roadMinor: "#141414",
     building: "#0e0e0e", labelCountry: "#555", labelCity: "#444", labelTown: "#333",
@@ -230,7 +255,7 @@ export const themes: MapTheme[] = [
   },
   {
     name: "Soft Light",
-    bg: "#1a1a20", water: "#151518", ocean: "#121214",
+    bg: "#1a1a20", water: "#0e0e12", ocean: "#0a0a0e",
     landcover: "#242428", landcoverOpacity: 0.5, landuse: "#202024", landuseOpacity: 0.4,
     boundary: "#3e3e44", boundaryState: "#34343a", road: "#34343a", roadMinor: "#2c2c32",
     building: "#242428", labelCountry: "#9898a4", labelCity: "#808090", labelTown: "#68687a",
@@ -238,6 +263,6 @@ export const themes: MapTheme[] = [
   },
 ];
 
-export function getThemeStyle(index: number): StyleSpecification {
-  return buildMapStyle(themes[index % themes.length]);
+export function getThemeStyle(index: number, projection: "mercator" | "globe" = "mercator"): StyleSpecification {
+  return buildMapStyle(themes[index % themes.length], projection);
 }

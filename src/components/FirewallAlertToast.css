@@ -1,0 +1,84 @@
+/* Firewall alert overlay — stacks alerts top-right */
+
+.fw-alert-overlay {
+  position: fixed;
+  top: 60px;
+  right: var(--sp-4);
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  max-width: 320px;
+  pointer-events: none;
+}
+
+.fw-alert-card {
+  pointer-events: auto;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  background: linear-gradient(160deg, rgba(22, 18, 32, 0.88) 0%, rgba(18, 18, 26, 0.85) 100%);
+  backdrop-filter: blur(40px) saturate(1.8);
+  -webkit-backdrop-filter: blur(40px) saturate(1.8);
+  border: 1px solid rgba(160, 140, 255, 0.12);
+  border-radius: var(--radius-md);
+  box-shadow:
+    0 0 0 0.5px rgba(255, 255, 255, 0.06),
+    0 8px 32px rgba(0, 0, 0, 0.5),
+    0 2px 8px rgba(0, 0, 0, 0.25);
+  animation: fw-alert-slide-in 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.fw-alert-card__close {
+  position: absolute;
+  top: var(--sp-2);
+  right: var(--sp-2);
+  background: none;
+  border: none;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.fw-alert-card__close:hover {
+  color: var(--color-text-primary);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.fw-alert-card__header {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  color: var(--color-warning);
+}
+
+.fw-alert-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: calc(var(--sp-2) + 16px);
+}
+
+.fw-alert-card__actions {
+  display: flex;
+  gap: var(--sp-2);
+  padding-left: calc(var(--sp-2) + 16px);
+}
+
+@keyframes fw-alert-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(40px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}

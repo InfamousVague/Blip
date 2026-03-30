@@ -12,4 +12,12 @@ export default defineConfig({
       'react-dom': path.resolve(__dirname, 'node_modules/react-dom'),
     },
   },
+  build: {
+    rollupOptions: {
+      input: {
+        main: path.resolve(__dirname, 'index.html'),
+        menubar: path.resolve(__dirname, 'menubar.html'),
+      },
+    },
+  },
 })

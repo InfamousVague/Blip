@@ -12,12 +12,14 @@ import { palette } from "@mattmattmattmatt/base/primitives/icon/icons/palette";
 import { info } from "@mattmattmattmatt/base/primitives/icon/icons/info";
 import { x } from "@mattmattmattmatt/base/primitives/icon/icons/x";
 import { refreshCw } from "@mattmattmattmatt/base/primitives/icon/icons/refresh-cw";
+import { SegmentedControl } from "@mattmattmattmatt/base/primitives/segmented-control/SegmentedControl";
 import "@mattmattmattmatt/base/primitives/button/button.css";
 import "@mattmattmattmatt/base/primitives/stack/stack.css";
 import "@mattmattmattmatt/base/primitives/text/text.css";
 import "@mattmattmattmatt/base/primitives/toggle/toggle.css";
 import "@mattmattmattmatt/base/primitives/separator/separator.css";
 import "@mattmattmattmatt/base/primitives/icon/icon.css";
+import "@mattmattmattmatt/base/primitives/segmented-control/segmented-control.css";
 import { BlocklistManager } from "./BlocklistManager";
 import { themes } from "../map-themes";
 import "./Settings.css";
@@ -42,9 +44,23 @@ interface Props {
   onClose: () => void;
   themeIndex: number;
   onThemeChange: (index: number) => void;
+  firewallMode: string;
+  onFirewallModeChange: (mode: string) => void;
 }
 
-export function Settings({ open, onClose, themeIndex, onThemeChange }: Props) {
+const FIREWALL_MODES = [
+  { value: "silent_allow", label: "Silent Allow" },
+  { value: "alert", label: "Alert" },
+  { value: "silent_deny", label: "Silent Deny" },
+];
+
+const FIREWALL_MODE_DESCRIPTIONS: Record<string, string> = {
+  silent_allow: "New apps are allowed automatically. Review connections later.",
+  alert: "Prompt when an unknown app connects for the first time.",
+  silent_deny: "Block all connections from unknown apps by default.",
+};
+
+export function Settings({ open, onClose, themeIndex, onThemeChange, firewallMode, onFirewallModeChange }: Props) {
   const [activeTab, setActiveTab] = useState<SettingsTab>("general");
   const [autoCapture, setAutoCapture] = useState(true);
   const [showInactive, setShowInactive] = useState(true);
@@ -197,6 +213,24 @@ export function Settings({ open, onClose, themeIndex, onThemeChange }: Props) {
                     <Text size="xs" color="tertiary">Write detailed logs to /tmp/blip-debug.log</Text>
                   </div>
                   <Toggle checked={debugLogging} onChange={(e) => setDebugLogging(e.target.checked)} />
+                </div>
+
+                <Separator />
+
+                <div className="settings-row" style={{ flexDirection: "column", alignItems: "stretch", gap: "var(--sp-2)" }}>
+                  <div className="settings-row__label">
+                    <Text size="sm" weight="medium">Firewall Mode</Text>
+                    <Text size="xs" color="tertiary">
+                      {FIREWALL_MODE_DESCRIPTIONS[firewallMode] || FIREWALL_MODE_DESCRIPTIONS.silent_allow}
+                    </Text>
+                  </div>
+                  <SegmentedControl
+                    options={FIREWALL_MODES}
+                    value={firewallMode}
+                    onChange={onFirewallModeChange}
+                    size="sm"
+                    style={{ width: "100%" }}
+                  />
                 </div>
 
                 <Separator />

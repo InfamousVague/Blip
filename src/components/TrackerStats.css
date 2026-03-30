@@ -50,6 +50,10 @@
   border-radius: 2px;
 }
 
+.tracker-stats__list {
+  gap: var(--sp-1);
+}
+
 .tracker-stats__row {
   display: flex;
   align-items: center;
@@ -61,4 +65,23 @@
 
 .tracker-stats__row:hover {
   background: rgba(255, 255, 255, 0.04);
+}
+
+.tracker-stats__icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+img.tracker-stats__icon {
+  filter: brightness(0) invert(1);
+  opacity: 0.7;
+}
+
+.tracker-stats__icon--default {
+  opacity: 0.3;
+  color: var(--color-text-tertiary);
 }

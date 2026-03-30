@@ -1,0 +1,93 @@
+/* Ports sidebar — matches FirewallSidebar patterns */
+
+.ports-sidebar__search {
+  padding: var(--sp-2) 0;
+  flex-shrink: 0;
+}
+
+.ports-sidebar__list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-md);
+  padding: var(--sp-1);
+}
+
+.ports-sidebar__list::-webkit-scrollbar {
+  width: 4px;
+}
+.ports-sidebar__list::-webkit-scrollbar-track {
+  background: transparent;
+}
+.ports-sidebar__list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+}
+
+.ports-sidebar__empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-8) var(--sp-4);
+  text-align: center;
+}
+
+/* ── Port row ── */
+
+.ports-row {
+  border-radius: var(--radius-md);
+  transition: background var(--duration-fast) var(--ease-default);
+  padding: 0 var(--sp-2);
+}
+
+.ports-row:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.ports-row__main {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) 0;
+  min-height: 44px;
+}
+
+.ports-row__port {
+  flex-shrink: 0;
+  min-width: 48px;
+  text-align: right;
+}
+
+.ports-row__info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ports-row__actions {
+  flex-shrink: 0;
+}
+
+/* State dot indicators */
+.ports-row__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.ports-row__dot--listen {
+  background: var(--color-success);
+}
+
+.ports-row__dot--established {
+  background: var(--color-info);
+}
+
+.ports-row__dot--other {
+  background: var(--color-text-tertiary);
+}

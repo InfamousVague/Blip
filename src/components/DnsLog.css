@@ -66,9 +66,31 @@
   background: rgba(239, 68, 68, 0.14);
 }
 
+.dns-log__list {
+  gap: var(--sp-1);
+}
+
 .dns-log__row-main {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: var(--sp-2);
+}
+
+.dns-log__icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+img.dns-log__icon {
+  filter: brightness(0) invert(1);
+  opacity: 0.7;
+}
+
+.dns-log__icon--default {
+  opacity: 0.3;
+  color: var(--color-text-tertiary);
 }

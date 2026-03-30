@@ -34,3 +34,4 @@ dist-ssr
 .env*
 *.provisionprofile
 src-tauri/target/
+blip-core/target/

@@ -6,7 +6,7 @@
 use crate::BlipCore;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 /// Global singleton — initialized by `blip_init`.
 static CORE: OnceLock<BlipCore> = OnceLock::new();
@@ -133,12 +133,98 @@ pub extern "C" fn blip_ingest_ne_events(json: *const c_char) {
         }
     };
 
-    // Parse and process NE events
+    // Parse and process NE events with full GeoIP + DNS enrichment
     if let Ok(events) = serde_json::from_str::<Vec<ne_bridge::types::NEConnectionEvent>>(json_str) {
         let core = core();
+
+        // Get GeoIP reference (loaded during start_capture)
+        let geoip_arc: Option<Arc<crate::geoip::GeoIp>> = core.geoip.lock().ok().and_then(|guard| guard.clone());
+
+        // Get DNS mapping snapshot (try_read avoids blocking on the async RwLock)
+        let dns_guard = core.dns_mapping.try_read().ok();
+
         for event in events {
-            ne_bridge::process_ne_event(&event, &core.store, &core.blocklists, &core.db_writer, &core.enricher);
+            ne_bridge::process_ne_event(
+                &event,
+                &core.store,
+                &core.blocklists,
+                &core.db_writer,
+                &core.enricher,
+                geoip_arc.as_deref(),
+                dns_guard.as_deref(),
+            );
         }
+    }
+}
+
+// ---- Database queries ----
+
+/// Get historical endpoints as JSON array. Caller must free with `blip_free_string`.
+#[no_mangle]
+pub extern "C" fn blip_get_historical_endpoints() -> *mut c_char {
+    match core().db.get_historical_endpoints() {
+        Ok(eps) => to_c_string(&serde_json::to_string(&eps).unwrap_or_else(|_| "[]".into())),
+        Err(_) => to_c_string("[]"),
+    }
+}
+
+/// Get historical stats as JSON. Caller must free with `blip_free_string`.
+#[no_mangle]
+pub extern "C" fn blip_get_historical_stats() -> *mut c_char {
+    match core().db.get_historical_stats() {
+        Ok(stats) => to_c_string(&serde_json::to_string(&stats).unwrap_or_else(|_| "{}".into())),
+        Err(_) => to_c_string("{\"total_connections\":0,\"total_bytes_in\":0,\"total_bytes_out\":0,\"first_seen_ms\":null,\"last_seen_ms\":null}"),
+    }
+}
+
+/// Get a preference value. Returns JSON string or "null". Caller must free.
+#[no_mangle]
+pub extern "C" fn blip_get_preference(key: *const c_char) -> *mut c_char {
+    let key_str = unsafe {
+        if key.is_null() { return to_c_string("null"); }
+        match CStr::from_ptr(key).to_str() {
+            Ok(s) => s,
+            Err(_) => return to_c_string("null"),
+        }
+    };
+    match core().db.get_preference(key_str) {
+        Ok(Some(val)) => to_c_string(&format!("\"{}\"", val.replace('\\', "\\\\").replace('"', "\\\""))),
+        _ => to_c_string("null"),
+    }
+}
+
+/// Set a preference value. Returns JSON.
+#[no_mangle]
+pub extern "C" fn blip_set_preference(key: *const c_char, value: *const c_char) -> *mut c_char {
+    let (key_str, val_str) = unsafe {
+        if key.is_null() || value.is_null() {
+            return to_c_string("{\"error\":\"null argument\"}");
+        }
+        let k = match CStr::from_ptr(key).to_str() { Ok(s) => s, Err(_) => return to_c_string("{\"error\":\"invalid key\"}") };
+        let v = match CStr::from_ptr(value).to_str() { Ok(s) => s, Err(_) => return to_c_string("{\"error\":\"invalid value\"}") };
+        (k, v)
+    };
+    match core().db.set_preference(key_str, val_str) {
+        Ok(()) => to_c_string("{\"ok\":true}"),
+        Err(e) => to_c_string(&format!("{{\"error\":\"{}\"}}", e)),
+    }
+}
+
+// ---- Port / process management ----
+
+/// Get listening ports as JSON array. Caller must free with `blip_free_string`.
+#[no_mangle]
+pub extern "C" fn blip_get_listening_ports() -> *mut c_char {
+    to_c_string(&core().get_listening_ports_json())
+}
+
+/// Kill a process by PID. Returns JSON with success/error. Caller must free.
+#[no_mangle]
+pub extern "C" fn blip_kill_process(pid: u32) -> *mut c_char {
+    match core().kill_process(pid) {
+        Ok(true) => to_c_string("{\"ok\":true}"),
+        Ok(false) => to_c_string("{\"error\":\"process not found\"}"),
+        Err(e) => to_c_string(&format!("{{\"error\":\"{}\"}}", e)),
     }
 }
 

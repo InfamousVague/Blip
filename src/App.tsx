@@ -20,7 +20,9 @@ import { useArcAnimation } from "./hooks/useArcAnimation";
 import type { EndpointData } from "./hooks/useArcAnimation";
 import { NetworkArcLayer } from "./layers/ArcLayer";
 import { EndpointLayer } from "./layers/EndpointLayer";
-import { HeatmapLayer } from "./layers/HeatmapLayer";
+import { useHeatmapData } from "./layers/HeatmapLayer";
+import { RadarMinimap } from "./components/RadarMinimap";
+import { useSpeedTest } from "./hooks/useSpeedTest";
 import { Sidebar } from "./components/Sidebar";
 import { GlobalStats } from "./components/GlobalStats";
 import { EndpointDetail } from "./components/EndpointDetail";
@@ -30,8 +32,15 @@ import { SetupPrompt } from "./components/SetupPrompt";
 import { TrackerStats } from "./components/TrackerStats";
 import { DnsLog } from "./components/DnsLog";
 import { FirewallContent } from "./components/FirewallSidebar";
+import { PortsSidebar } from "./components/PortsSidebar";
+import { ExpandedChartModal } from "./components/ExpandedChartModal";
 import { useDnsCapture } from "./hooks/useDnsCapture";
+import { useServiceBandwidth } from "./hooks/useServiceBandwidth";
 import { useFirewallRules } from "./hooks/useFirewallRules";
+import { useFirewallAlerts } from "./hooks/useFirewallAlerts";
+import { useListeningPorts } from "./hooks/useListeningPorts";
+import { FirewallAlertOverlay } from "./components/FirewallAlertToast";
+import { useAppUpdate } from "./hooks/useAppUpdate";
 import { SegmentedControl } from "@mattmattmattmatt/base/primitives/segmented-control/SegmentedControl";
 import "@mattmattmattmatt/base/primitives/segmented-control/segmented-control.css";
 import { flame } from "@mattmattmattmatt/base/primitives/icon/icons/flame";
@@ -81,7 +90,7 @@ async function getLocation(forceRefresh = false): Promise<Location> {
 
 function App() {
   const mapRef = useRef<MapRef>(null);
-  const [viewState, setViewState] = useState({ longitude: 0, latitude: 20, zoom: 2 });
+  const [viewState, setViewState] = useState({ longitude: 0, latitude: 20, zoom: 2, pitch: 45, bearing: -8 });
   const [location, setLocation] = useState<Location | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedEndpoint, setSelectedEndpoint] = useState<EndpointData | null>(null);
@@ -91,11 +100,12 @@ function App() {
   const [showSetup, setShowSetup] = useState(false);
   const [showHeatmap, setShowHeatmap] = useState(false);
   const [showParticles, setShowParticles] = useState(true);
-  const [mode, setMode] = useState<"network" | "firewall">("network");
+  const [mode, setMode] = useState<"network" | "firewall" | "ports">("network");
   const [sidebarTab, setSidebarTab] = useState<"network" | "trackers" | "dns">("network");
   const [historicalEndpoints, setHistoricalEndpoints] = useState<HistoricalEndpoint[]>([]);
   const [selfInfo, setSelfInfo] = useState<SelfIpInfo | null>(null);
   const [elevationBanner, setElevationBanner] = useState(false);
+  const [expandedChart, setExpandedChart] = useState<string | null>(null);
   const [themeIndex, setThemeIndex] = useState(() => {
     const saved = localStorage.getItem("blip-map-theme");
     return saved ? parseInt(saved, 10) : themes.findIndex((t) => t.name === "Soft Light");
@@ -111,14 +121,20 @@ function App() {
   const { log: dnsLog, stats: dnsStats, blockedAttempts } = useDnsCapture(sidebarTab === "dns");
   const { arcs, endpoints, particles, blockedMarkers } = useArcAnimation(connections, userPos, dnsStats.blocked_count, blockedAttempts);
   const bandwidth = useBandwidth(capturing);
-  const { apps: firewallApps, setRule: setFirewallRule } = useFirewallRules();
+  const { apps: firewallApps, setRule: setFirewallRule, mode: firewallMode, setMode: setFirewallMode, deleteRuleById } = useFirewallRules();
+  const { serviceSamples, serviceBreakdown, serviceColors } = useServiceBandwidth(connections, bandwidth);
+  const { alerts: firewallAlerts, dismissAlert: dismissFirewallAlert } = useFirewallAlerts(firewallMode);
+  const speedTest = useSpeedTest();
+  const heatmapData = useHeatmapData({ initialEndpoints: historicalEndpoints, liveConnections: connections, visible: showHeatmap });
+  const appUpdate = useAppUpdate();
+  const { ports: listeningPorts, killProcess } = useListeningPorts(mode === "ports");
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     getLocation()
       .then((loc) => {
         setLocation(loc);
-        setViewState((v) => ({ ...v, longitude: loc.longitude, latitude: loc.latitude, zoom: 4.5 }));
+        setViewState((v) => ({ ...v, longitude: loc.longitude, latitude: loc.latitude, zoom: 4.5, pitch: 45, bearing: -8 }));
       })
       .catch((err) => console.warn("Location unavailable:", err));
 
@@ -179,7 +195,7 @@ function App() {
     getLocation()
       .then((loc) => {
         setLocation(loc);
-        mapRef.current?.flyTo({ center: [loc.longitude, loc.latitude], zoom: 4.5, duration: 1500 });
+        mapRef.current?.flyTo({ center: [loc.longitude, loc.latitude], zoom: 4.5, pitch: 45, bearing: -8, duration: 1500 });
       })
       .catch((err) => console.error("Could not get location:", err));
   };
@@ -200,6 +216,89 @@ function App() {
       map.setPadding({ top: 48, right: sidebarWidth + 16, bottom: 0, left: 0 });
     }
   }, [sidebarWidth]);
+
+  // Auto-zoom out when endpoints appear outside the current viewport
+  const seenEndpointIds = useRef(new Set<string>());
+  const userInteractedAt = useRef(0);
+  const autoZoomTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Track manual user interaction (pan/zoom) to pause auto-zoom
+  const onMoveStart = useCallback((evt: any) => {
+    // Only count as user interaction if it originated from user input (not flyTo)
+    if (evt.originalEvent) {
+      userInteractedAt.current = Date.now();
+    }
+  }, []);
+
+  useEffect(() => {
+    const map = mapRef.current?.getMap();
+    if (!map || !location || endpoints.length === 0) return;
+
+    // Don't auto-zoom if user interacted in the last 8 seconds
+    if (Date.now() - userInteractedAt.current < 8000) return;
+
+    // Find endpoints we haven't seen yet
+    const newEndpoints = endpoints.filter((ep) => !seenEndpointIds.current.has(ep.id));
+    if (newEndpoints.length === 0) return;
+
+    // Mark them as seen
+    for (const ep of newEndpoints) {
+      seenEndpointIds.current.add(ep.id);
+    }
+
+    // Check if any new endpoints are outside the current viewport bounds
+    const bounds = map.getBounds();
+    const outOfView = newEndpoints.filter((ep) => {
+      const [lon, lat] = ep.position;
+      return !bounds.contains([lon, lat]);
+    });
+
+    if (outOfView.length === 0) return;
+
+    // Debounce: batch endpoints that arrive within 1.5s
+    if (autoZoomTimer.current) clearTimeout(autoZoomTimer.current);
+    autoZoomTimer.current = setTimeout(() => {
+      const map = mapRef.current?.getMap();
+      if (!map || !location) return;
+
+      // Don't auto-zoom if user interacted while we were debouncing
+      if (Date.now() - userInteractedAt.current < 8000) return;
+
+      // Build bounding box: user location + all known endpoints
+      let minLon = location.longitude;
+      let maxLon = location.longitude;
+      let minLat = location.latitude;
+      let maxLat = location.latitude;
+
+      for (const ep of endpoints) {
+        const [lon, lat] = ep.position;
+        if (lon < minLon) minLon = lon;
+        if (lon > maxLon) maxLon = lon;
+        if (lat < minLat) minLat = lat;
+        if (lat > maxLat) maxLat = lat;
+      }
+
+      // Add padding to the bounds (10% on each side)
+      const lonPad = Math.max((maxLon - minLon) * 0.1, 2);
+      const latPad = Math.max((maxLat - minLat) * 0.1, 1);
+
+      // Only zoom out, never in — compare against current zoom
+      const currentZoom = map.getZoom();
+
+      map.fitBounds(
+        [[minLon - lonPad, minLat - latPad], [maxLon + lonPad, maxLat + latPad]],
+        {
+          maxZoom: currentZoom, // never zoom in past current level
+          duration: 2000,
+          padding: { top: 56, right: sidebarWidth + 24, bottom: 24, left: 24 },
+        },
+      );
+    }, 1500);
+
+    return () => {
+      if (autoZoomTimer.current) clearTimeout(autoZoomTimer.current);
+    };
+  }, [endpoints, location, sidebarWidth]);
 
   const handleMapClick = useCallback(() => {
     setSelectedId(null);
@@ -228,23 +327,50 @@ function App() {
             options={[
               { value: "network", label: "Network" },
               { value: "firewall", label: "Firewall" },
+              { value: "ports", label: "Ports" },
             ]}
             value={mode}
-            onChange={(v) => setMode(v as "network" | "firewall")}
+            onChange={(v) => setMode(v as "network" | "firewall" | "ports")}
             size="md"
           />
         </div>
       </div>
 
+      {/* Update banner */}
+      {appUpdate.available && appUpdate.updateInfo && (
+        <div className="update-banner">
+          <span className="update-banner__text">
+            Blip v{appUpdate.updateInfo.version} is available
+          </span>
+          {appUpdate.downloading ? (
+            <span className="update-banner__progress">Updating... {appUpdate.progress}%</span>
+          ) : (
+            <>
+              <Button variant="primary" size="sm" onClick={appUpdate.installUpdate}>
+                Update
+              </Button>
+              <Button variant="ghost" size="sm" onClick={appUpdate.dismiss}>
+                Later
+              </Button>
+            </>
+          )}
+          {appUpdate.error && (
+            <span className="update-banner__error">{appUpdate.error}</span>
+          )}
+        </div>
+      )}
+
       <Map
         ref={mapRef}
         {...viewState}
         onMove={onMove}
+        onMoveStart={onMoveStart}
         onClick={handleMapClick}
         mapStyle={getThemeStyle(themeIndex)}
         style={{ width: "100%", height: "100%" }}
         minZoom={1.5}
-        maxZoom={18}
+        maxZoom={8}
+        maxPitch={70}
         attributionControl={false}
       >
         {location && (
@@ -253,15 +379,17 @@ function App() {
           </Marker>
         )}
 
-        <NetworkArcLayer arcs={arcs} particles={particles} blockedMarkers={blockedMarkers} showParticles={showParticles} />
-        <HeatmapLayer initialEndpoints={historicalEndpoints} visible={showHeatmap} />
+        <NetworkArcLayer arcs={arcs} particles={particles} blockedMarkers={blockedMarkers} showParticles={showParticles} heatmapData={heatmapData} showHeatmap={showHeatmap} />
         <EndpointLayer
           endpoints={endpoints}
           zoom={viewState.zoom}
           selectedId={selectedId}
           onSelect={handleEndpointSelect}
+          userLocation={userPos}
         />
       </Map>
+
+      <RadarMinimap endpoints={endpoints} userLocation={userPos} />
 
       <Sidebar
         mode={mode}
@@ -291,7 +419,7 @@ function App() {
                 </button>
               </div>
               {sidebarTab === "network" ? (
-                <GlobalStats connections={connections} totalEver={totalEver} bandwidth={bandwidth} />
+                <GlobalStats connections={connections} totalEver={totalEver} bandwidth={bandwidth} serviceSamples={serviceSamples} serviceBreakdown={serviceBreakdown} serviceColors={serviceColors} onExpandChart={setExpandedChart} downloadMbps={speedTest.downloadMbps} uploadMbps={speedTest.uploadMbps} />
               ) : sidebarTab === "trackers" ? (
                 <TrackerStats visible={sidebarTab === "trackers"} />
               ) : (
@@ -301,7 +429,10 @@ function App() {
           )
         }
         firewallContent={
-          <FirewallContent apps={firewallApps} onSetRule={setFirewallRule} connections={connections} />
+          <FirewallContent apps={firewallApps} onSetRule={setFirewallRule} onDeleteRuleById={deleteRuleById} connections={connections} />
+        }
+        portsContent={
+          <PortsSidebar ports={listeningPorts} onKill={killProcess} />
         }
       />
 
@@ -322,9 +453,6 @@ function App() {
       )}
 
       <div className="zoom-controls">
-        <span className="map-btn-tooltip" data-tooltip={capturing ? "Pause" : "Start"}>
-          <Button variant={capturing ? "primary" : "secondary"} size="md" icon={capturing ? pause : play} iconOnly aria-label={capturing ? "Stop capture" : "Start capture"} onClick={toggleCapture} />
-        </span>
         <span className="map-btn-tooltip" data-tooltip="Heat map">
           <Button variant={showHeatmap ? "primary" : "secondary"} size="md" icon={flame} iconOnly aria-label="Toggle heat map" onClick={() => setShowHeatmap(!showHeatmap)} />
         </span>
@@ -345,7 +473,33 @@ function App() {
         </span>
       </div>
 
-      <Settings open={settingsOpen} onClose={() => setSettingsOpen(false)} themeIndex={themeIndex} onThemeChange={(i) => { setThemeIndex(i); localStorage.setItem("blip-map-theme", String(i)); }} />
+      <Settings open={settingsOpen} onClose={() => setSettingsOpen(false)} themeIndex={themeIndex} onThemeChange={(i) => { setThemeIndex(i); localStorage.setItem("blip-map-theme", String(i)); }} firewallMode={firewallMode} onFirewallModeChange={setFirewallMode} />
+
+      <FirewallAlertOverlay
+        alerts={firewallAlerts}
+        onAllow={(alert) => {
+          setFirewallRule(alert.appId, alert.appId, "allow");
+          dismissFirewallAlert(alert.id);
+        }}
+        onDeny={(alert) => {
+          setFirewallRule(alert.appId, alert.appId, "deny");
+          dismissFirewallAlert(alert.id);
+        }}
+        onDismiss={dismissFirewallAlert}
+      />
+
+      {expandedChart && (
+        <ExpandedChartModal
+          chartMode={expandedChart}
+          onClose={() => setExpandedChart(null)}
+          samples={bandwidth.samples}
+          totalIn={bandwidth.totalIn}
+          totalOut={bandwidth.totalOut}
+          serviceSamples={serviceSamples}
+          serviceBreakdown={serviceBreakdown}
+          serviceColors={serviceColors}
+        />
+      )}
 
       {showSetup && (
         <SetupPrompt onComplete={() => {

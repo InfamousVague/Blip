@@ -21,6 +21,16 @@ char *blip_get_bandwidth(void);
 // Blocklist management
 char *blip_add_blocklist_url(const char *url, const char *name);
 
+// Database queries
+char *blip_get_historical_endpoints(void);
+char *blip_get_historical_stats(void);
+char *blip_get_preference(const char *key);
+char *blip_set_preference(const char *key, const char *value);
+
+// Port / process management
+char *blip_get_listening_ports(void);
+char *blip_kill_process(uint32_t pid);
+
 // NE event ingestion
 void blip_ingest_ne_events(const char *json);
 

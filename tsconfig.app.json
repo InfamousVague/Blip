@@ -12,6 +12,8 @@
       "@mattmattmattmatt/base/*": ["../Libs/base/*"]
     },
 
+    "resolveJsonModule": true,
+
     /* Bundler mode */
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,

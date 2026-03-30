@@ -53,10 +53,20 @@ interface HeaderProps {
   samples: BandwidthSample[];
   totalIn: number;
   totalOut: number;
+  uploadMbps?: number;
+  downloadMbps?: number;
+}
+
+function formatSpeedMbps(mbps: number): string {
+  if (mbps <= 0) return "—";
+  if (mbps >= 1000) return `${(mbps / 1000).toFixed(1)} Gbps`;
+  if (mbps >= 100) return `${Math.round(mbps)} Mbps`;
+  if (mbps >= 1) return `${mbps.toFixed(1)} Mbps`;
+  return `${(mbps * 1000).toFixed(0)} Kbps`;
 }
 
 /** Standalone upload/download header — always visible regardless of chart mode */
-export function BandwidthHeader({ samples, totalIn, totalOut }: HeaderProps) {
+export function BandwidthHeader({ samples, totalIn, totalOut, uploadMbps = 0, downloadMbps = 0 }: HeaderProps) {
   const currentIn = samples.length > 0 ? samples[samples.length - 1].bytesIn : 0;
   const currentOut = samples.length > 0 ? samples[samples.length - 1].bytesOut : 0;
 
@@ -75,6 +85,10 @@ export function BandwidthHeader({ samples, totalIn, totalOut }: HeaderProps) {
           <Text size="xs" color="tertiary" style={{ minWidth: "3.2em" }}>Total</Text>
           <AnimatedBytes bytes={totalOut} size="xs" minDigits={2} />
         </Stack>
+        <Stack direction="horizontal" gap="1" align="baseline">
+          <Text size="xs" color="tertiary" style={{ minWidth: "3.2em" }}>Speed</Text>
+          <Text size="xs" font="mono" weight="medium">{formatSpeedMbps(uploadMbps)}</Text>
+        </Stack>
       </Stack>
       <div style={{ width: 1, background: "var(--color-border-default)", alignSelf: "stretch" }} />
       <Stack direction="vertical" gap="1" align="start" style={{ flex: 1, marginLeft: "auto" }}>
@@ -89,6 +103,10 @@ export function BandwidthHeader({ samples, totalIn, totalOut }: HeaderProps) {
         <Stack direction="horizontal" gap="1" align="baseline">
           <Text size="xs" color="tertiary" style={{ minWidth: "3.2em" }}>Total</Text>
           <AnimatedBytes bytes={totalIn} size="xs" minDigits={2} />
+        </Stack>
+        <Stack direction="horizontal" gap="1" align="baseline">
+          <Text size="xs" color="tertiary" style={{ minWidth: "3.2em" }}>Speed</Text>
+          <Text size="xs" font="mono" weight="medium">{formatSpeedMbps(downloadMbps)}</Text>
         </Stack>
       </Stack>
     </Stack>
