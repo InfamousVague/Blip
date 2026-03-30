@@ -22,48 +22,96 @@ interface TreemapContentProps {
   name: string;
   size: number;
   fill: string;
+  totalBytes: number;
 }
 
-function CustomContent({ x, y, width, height, name, size, fill }: TreemapContentProps) {
+function GlassContent({ x, y, width, height, name, size, fill, totalBytes }: TreemapContentProps) {
   const isSmall = width < 60 || height < 30;
+  const isTiny = width < 30 || height < 18;
+  const percentage = totalBytes > 0 ? ((size / totalBytes) * 100).toFixed(0) : "0";
 
   return (
     <g>
+      {/* Semi-transparent colored fill */}
       <rect
-        x={x}
-        y={y}
-        width={width}
-        height={height}
+        x={x + 1}
+        y={y + 1}
+        width={Math.max(width - 2, 0)}
+        height={Math.max(height - 2, 0)}
         fill={fill}
-        stroke="rgba(0,0,0,0.3)"
-        strokeWidth={1}
-        rx={4}
+        opacity={0.22}
+        rx={5}
       />
-      {width > 30 && height > 20 && (
+      {/* Glass gradient overlay */}
+      <defs>
+        <linearGradient id={`tm-glass-${name}`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="white" stopOpacity={0.12} />
+          <stop offset="60%" stopColor="white" stopOpacity={0.02} />
+          <stop offset="100%" stopColor={fill} stopOpacity={0.15} />
+        </linearGradient>
+      </defs>
+      <rect
+        x={x + 1}
+        y={y + 1}
+        width={Math.max(width - 2, 0)}
+        height={Math.max(height - 2, 0)}
+        fill={`url(#tm-glass-${name})`}
+        rx={5}
+      />
+      {/* Border */}
+      <rect
+        x={x + 1}
+        y={y + 1}
+        width={Math.max(width - 2, 0)}
+        height={Math.max(height - 2, 0)}
+        fill="none"
+        stroke={fill}
+        strokeOpacity={0.35}
+        strokeWidth={1}
+        rx={5}
+      />
+      {/* Top highlight */}
+      {width > 24 && height > 16 && (
+        <line
+          x1={x + 6}
+          y1={y + 2}
+          x2={x + width - 6}
+          y2={y + 2}
+          stroke="white"
+          strokeOpacity={0.1}
+          strokeWidth={0.5}
+          strokeLinecap="round"
+        />
+      )}
+      {/* Labels */}
+      {!isTiny && width > 24 && height > 16 && (
         <>
           <text
             x={x + width / 2}
-            y={y + height / 2 - (isSmall ? 0 : 6)}
+            y={y + height / 2 - (isSmall ? 0 : 5)}
             textAnchor="middle"
             dominantBaseline="central"
             fill="white"
             fontSize={isSmall ? 9 : 11}
-            fontWeight={500}
-            opacity={isSmall ? 0.7 : 0.9}
+            fontWeight={600}
+            opacity={0.9}
+            fontFamily="var(--font-sans)"
           >
             {name}
           </text>
           {!isSmall && (
             <text
               x={x + width / 2}
-              y={y + height / 2 + 10}
+              y={y + height / 2 + 9}
               textAnchor="middle"
               dominantBaseline="central"
-              fill="white"
+              fill={fill}
               fontSize={9}
-              opacity={0.6}
+              fontWeight={600}
+              opacity={0.85}
+              fontFamily="var(--font-mono)"
             >
-              {formatBytes(size)}
+              {formatBytes(size)} · {percentage}%
             </text>
           )}
         </>
@@ -85,6 +133,8 @@ export function TreemapChart({ serviceBreakdown }: Props) {
       fill: s.color,
     }));
 
+  const totalBytes = data.reduce((sum, d) => sum + d.size, 0);
+
   if (data.length === 0) {
     return (
       <Stack direction="vertical" gap="2" align="center" justify="center" style={{ height: 120 }}>
@@ -100,7 +150,7 @@ export function TreemapChart({ serviceBreakdown }: Props) {
           data={data}
           dataKey="size"
           aspectRatio={4 / 3}
-          content={<CustomContent x={0} y={0} width={0} height={0} name="" size={0} fill="" />}
+          content={<GlassContent x={0} y={0} width={0} height={0} name="" size={0} fill="" totalBytes={totalBytes} />}
           isAnimationActive={false}
         />
       </ResponsiveContainer>

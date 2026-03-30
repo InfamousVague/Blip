@@ -84,6 +84,19 @@ export function pointOnArc(
   return [lon, lat, altitudeMeters];
 }
 
+/** Initial bearing from point 1 to point 2, in radians (0 = north, clockwise). */
+export function calculateBearing(
+  lat1: number, lon1: number,
+  lat2: number, lon2: number
+): number {
+  const φ1 = lat1 * DEG2RAD;
+  const φ2 = lat2 * DEG2RAD;
+  const Δλ = (lon2 - lon1) * DEG2RAD;
+  const y = Math.sin(Δλ) * Math.cos(φ2);
+  const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+  return Math.atan2(y, x); // radians, -π to π
+}
+
 /** Ease out cubic for smooth draw-on */
 export function easeOutCubic(t: number): number {
   return 1 - (1 - t) ** 3;

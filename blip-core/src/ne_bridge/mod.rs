@@ -15,19 +15,31 @@ use types::{NEConnectionEvent, NEDnsEvent, NEEvent};
 use uuid::Uuid;
 
 /// Synchronous NE event processing — called from FFI when Swift passes events.
-/// No GeoIP or async DNS mapping available in this path (simplified for App Group flow).
+/// Uses GeoIP for geolocation when available, and DnsMapping for domain resolution.
 pub fn process_ne_event(
     event: &NEConnectionEvent,
     store: &ConnectionStore,
     blocklists: &BlocklistStore,
     db_writer: &DbWriter,
     enricher: &std::sync::Mutex<Enricher>,
+    geoip: Option<&GeoIp>,
+    dns_mapping: Option<&crate::dns_capture::types::DnsMapping>,
 ) {
     let protocol = match event.protocol.as_str() {
         "tcp" => Protocol::Tcp,
         "udp" => Protocol::Udp,
         _ => Protocol::Other,
     };
+
+    // GeoIP lookup
+    let geo = geoip.and_then(|g| g.lookup(&event.dest_ip));
+
+    // Domain lookup from DNS cache
+    let domain = dns_mapping.and_then(|m| m.domain_for_ip_str(&event.dest_ip).map(String::from));
+
+    let is_tracker = domain
+        .as_ref()
+        .map_or(false, |d| blocklists.is_blocked(d));
 
     let id = Uuid::new_v4().to_string();
 
@@ -37,19 +49,19 @@ pub fn process_ne_event(
         dest_port: event.dest_port,
         process_name: Some(event.source_app_id.clone()),
         protocol,
-        dest_lat: 0.0,
-        dest_lon: 0.0,
-        domain: None,
-        city: None,
-        country: None,
+        dest_lat: geo.as_ref().map_or(0.0, |g| g.latitude),
+        dest_lon: geo.as_ref().map_or(0.0, |g| g.longitude),
+        domain,
+        city: geo.as_ref().and_then(|g| g.city.clone()),
+        country: geo.as_ref().and_then(|g| g.country.clone()),
         bytes_sent: 0,
         bytes_received: 0,
         first_seen_ms: event.timestamp_ms,
         last_seen_ms: event.timestamp_ms,
         active: true,
         ping_ms: None,
-        is_tracker: false,
-        tracker_category: None,
+        is_tracker,
+        tracker_category: if is_tracker { Some("tracker".to_string()) } else { None },
         asn: None,
         asn_org: None,
         cloud_provider: None,
@@ -82,6 +94,15 @@ pub fn process_ne_event(
         if already_exists {
             return;
         }
+
+        log::info!(
+            "NE FFI: new connection {}:{} ({}) [{}, {}]",
+            event.dest_ip,
+            event.dest_port,
+            event.source_app_id,
+            conn.city.as_deref().unwrap_or("?"),
+            conn.country.as_deref().unwrap_or("?")
+        );
 
         db_writer.send(DbMessage::InsertConnection(conn.clone()));
         state.connections.insert(id, conn);

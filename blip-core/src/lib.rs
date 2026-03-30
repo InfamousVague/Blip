@@ -36,6 +36,7 @@ pub struct BlipCore {
     pub db_writer: Arc<DbWriter>,
     pub enricher: Arc<Mutex<Enricher>>,
     pub dns_mapping: Arc<RwLock<DnsMapping>>,
+    pub geoip: Arc<Mutex<Option<Arc<GeoIp>>>>,
     pub runtime: tokio::runtime::Runtime,
 }
 
@@ -89,6 +90,7 @@ impl BlipCore {
             db_writer,
             enricher,
             dns_mapping: Arc::new(RwLock::new(DnsMapping::new())),
+            geoip: Arc::new(Mutex::new(None)),
             runtime,
         })
     }
@@ -106,6 +108,11 @@ impl BlipCore {
                 return;
             }
         };
+
+        // Store GeoIP reference so FFI path (process_ne_event) can use it
+        if let Ok(mut slot) = self.geoip.lock() {
+            *slot = Some(geoip.clone());
+        }
 
         let dns = Arc::new(DnsCache::new());
         let running = self.running.clone();
@@ -215,6 +222,86 @@ impl BlipCore {
                 format!("{{\"bytes_in\":{},\"bytes_out\":{}}}", total_in, total_out)
             }
             Err(_) => "{\"bytes_in\":0,\"bytes_out\":0}".into(),
+        }
+    }
+
+    /// Get listening ports and their processes as JSON.
+    pub fn get_listening_ports_json(&self) -> String {
+        let output = std::process::Command::new("netstat")
+            .args(["-anv", "-p", "tcp"])
+            .output();
+
+        match output {
+            Ok(o) => {
+                let stdout = String::from_utf8_lossy(&o.stdout);
+                let mut entries: Vec<serde_json::Value> = Vec::new();
+                let mut conn_counts: std::collections::HashMap<u16, u32> = std::collections::HashMap::new();
+
+                for line in stdout.lines().skip(2) {
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() < 10 { continue; }
+                    let state = parts[5];
+                    if state != "LISTEN" && state != "ESTABLISHED" { continue; }
+
+                    let local = parts[3];
+                    let local_port: u16 = if let Some(d) = local.rfind('.') {
+                        local[d + 1..].parse().unwrap_or(0)
+                    } else { continue };
+                    if local_port == 0 { continue; }
+
+                    let mut proc_name = String::new();
+                    let mut pid: u32 = 0;
+                    for p in &parts[10..] {
+                        if let Some(colon) = p.rfind(':') {
+                            if let Ok(p_id) = p[colon + 1..].parse::<u32>() {
+                                proc_name = p[..colon].to_string();
+                                pid = p_id;
+                                break;
+                            }
+                        }
+                    }
+                    if proc_name.is_empty() { continue; }
+
+                    if state == "ESTABLISHED" { *conn_counts.entry(local_port).or_insert(0) += 1; }
+                    entries.push(serde_json::json!({
+                        "port": local_port, "protocol": "TCP",
+                        "state": state, "pid": pid, "process_name": proc_name,
+                        "connections": 0
+                    }));
+                }
+                for entry in &mut entries {
+                    if entry["state"] == "LISTEN" {
+                        let p = entry["port"].as_u64().unwrap_or(0) as u16;
+                        entry["connections"] = serde_json::json!(*conn_counts.get(&p).unwrap_or(&0));
+                    }
+                }
+                let mut seen = std::collections::HashSet::new();
+                entries.retain(|e| {
+                    let key = format!("{}-{}-{}", e["port"], e["pid"], e["state"]);
+                    seen.insert(key)
+                });
+                serde_json::to_string(&entries).unwrap_or_else(|_| "[]".into())
+            }
+            Err(_) => "[]".into(),
+        }
+    }
+
+    /// Kill a process by PID.
+    pub fn kill_process(&self, pid: u32) -> Result<bool, String> {
+        let result = std::process::Command::new("kill")
+            .arg(pid.to_string())
+            .output();
+        match result {
+            Ok(output) if output.status.success() => Ok(true),
+            _ => {
+                let sudo = std::process::Command::new("sudo")
+                    .args(["-n", "kill", &pid.to_string()])
+                    .output();
+                match sudo {
+                    Ok(o) if o.status.success() => Ok(true),
+                    _ => Err(format!("Failed to kill process {}", pid)),
+                }
+            }
         }
     }
 }

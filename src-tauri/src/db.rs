@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 #[allow(dead_code)]
-const CURRENT_SCHEMA_VERSION: i32 = 4;
+const CURRENT_SCHEMA_VERSION: i32 = 5;
 
 // ---- Firewall types ----
 
@@ -17,6 +17,11 @@ pub struct FirewallRule {
     pub app_name: String,
     pub app_path: Option<String>,
     pub action: String, // "allow", "deny", "unspecified"
+    pub domain: Option<String>,
+    pub port: Option<u16>,
+    pub protocol: Option<String>,
+    pub expires_at: Option<u64>,
+    pub lifetime: String, // "permanent", "session", "timed"
     pub created_at: u64,
     pub updated_at: u64,
 }
@@ -271,6 +276,44 @@ impl Database {
             )
             .map_err(|e| format!("Migration v4 failed: {}", e))?;
             log::info!("Migration v4 complete");
+        }
+
+        if current < 5 {
+            log::info!("Running migration v5 (scoped + temporary rules)...");
+            // Rebuild firewall_rules: drop UNIQUE on app_id, add domain/port/protocol/expires_at/lifetime
+            conn.execute_batch(
+                "
+                CREATE TABLE IF NOT EXISTS firewall_rules_new (
+                    id TEXT PRIMARY KEY,
+                    app_id TEXT NOT NULL,
+                    app_name TEXT NOT NULL,
+                    app_path TEXT,
+                    action TEXT NOT NULL DEFAULT 'unspecified',
+                    domain TEXT,
+                    port INTEGER,
+                    protocol TEXT,
+                    expires_at INTEGER,
+                    lifetime TEXT NOT NULL DEFAULT 'permanent',
+                    created_at INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000),
+                    updated_at INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
+                );
+
+                INSERT INTO firewall_rules_new (id, app_id, app_name, app_path, action, created_at, updated_at)
+                    SELECT id, app_id, app_name, app_path, action, created_at, updated_at
+                    FROM firewall_rules;
+
+                DROP TABLE IF EXISTS firewall_rules;
+                ALTER TABLE firewall_rules_new RENAME TO firewall_rules;
+
+                CREATE INDEX IF NOT EXISTS idx_fw_app_id ON firewall_rules(app_id);
+                CREATE INDEX IF NOT EXISTS idx_fw_action ON firewall_rules(action);
+                CREATE INDEX IF NOT EXISTS idx_fw_expires ON firewall_rules(expires_at);
+
+                INSERT OR REPLACE INTO schema_version (version) VALUES (5);
+                ",
+            )
+            .map_err(|e| format!("Migration v5 failed: {}", e))?;
+            log::info!("Migration v5 complete");
         }
 
         Ok(())
@@ -733,7 +776,10 @@ impl Database {
     pub fn get_firewall_rules(&self) -> Result<Vec<FirewallRule>, String> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn
-            .prepare("SELECT id, app_id, app_name, app_path, action, created_at, updated_at FROM firewall_rules ORDER BY app_name")
+            .prepare(
+                "SELECT id, app_id, app_name, app_path, action, domain, port, protocol, expires_at, lifetime, created_at, updated_at
+                 FROM firewall_rules ORDER BY app_name"
+            )
             .map_err(|e| format!("Prepare failed: {}", e))?;
 
         let rules = stmt
@@ -744,8 +790,13 @@ impl Database {
                     app_name: row.get(2)?,
                     app_path: row.get(3)?,
                     action: row.get(4)?,
-                    created_at: row.get(5)?,
-                    updated_at: row.get(6)?,
+                    domain: row.get(5)?,
+                    port: row.get::<_, Option<i32>>(6)?.map(|p| p as u16),
+                    protocol: row.get(7)?,
+                    expires_at: row.get(8)?,
+                    lifetime: row.get::<_, Option<String>>(9)?.unwrap_or_else(|| "permanent".to_string()),
+                    created_at: row.get(10)?,
+                    updated_at: row.get(11)?,
                 })
             })
             .map_err(|e| format!("Query failed: {}", e))?
@@ -755,24 +806,39 @@ impl Database {
         Ok(rules)
     }
 
-    pub fn set_firewall_rule(&self, app_id: &str, app_name: &str, app_path: Option<&str>, action: &str) -> Result<FirewallRule, String> {
+    pub fn set_firewall_rule(
+        &self,
+        app_id: &str,
+        app_name: &str,
+        app_path: Option<&str>,
+        action: &str,
+        domain: Option<&str>,
+        port: Option<u16>,
+        protocol: Option<&str>,
+        lifetime: &str,
+        expires_at: Option<u64>,
+    ) -> Result<FirewallRule, String> {
         let conn = self.conn.lock().unwrap();
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_millis() as u64;
 
-        // Upsert: update if exists, insert if not
+        // Match on (app_id, domain, port, protocol) for upserts
         let existing_id: Option<String> = conn
-            .query_row("SELECT id FROM firewall_rules WHERE app_id = ?1", params![app_id], |row| row.get(0))
+            .query_row(
+                "SELECT id FROM firewall_rules WHERE app_id = ?1 AND domain IS ?2 AND port IS ?3 AND protocol IS ?4",
+                params![app_id, domain, port.map(|p| p as i32), protocol],
+                |row| row.get(0),
+            )
             .ok();
 
         let id = existing_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
         conn.execute(
-            "INSERT OR REPLACE INTO firewall_rules (id, app_id, app_name, app_path, action, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, COALESCE((SELECT created_at FROM firewall_rules WHERE id = ?1), ?6), ?6)",
-            params![id, app_id, app_name, app_path, action, now],
+            "INSERT OR REPLACE INTO firewall_rules (id, app_id, app_name, app_path, action, domain, port, protocol, expires_at, lifetime, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, COALESCE((SELECT created_at FROM firewall_rules WHERE id = ?1), ?11), ?11)",
+            params![id, app_id, app_name, app_path, action, domain, port.map(|p| p as i32), protocol, expires_at, lifetime, now],
         )
         .map_err(|e| format!("Set firewall rule failed: {}", e))?;
 
@@ -782,9 +848,45 @@ impl Database {
             app_name: app_name.to_string(),
             app_path: app_path.map(String::from),
             action: action.to_string(),
+            domain: domain.map(String::from),
+            port,
+            protocol: protocol.map(String::from),
+            expires_at,
+            lifetime: lifetime.to_string(),
             created_at: now,
             updated_at: now,
         })
+    }
+
+    pub fn delete_firewall_rule_by_id(&self, id: &str) -> Result<(), String> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM firewall_rules WHERE id = ?1", params![id])
+            .map_err(|e| format!("Delete firewall rule by id failed: {}", e))?;
+        Ok(())
+    }
+
+    pub fn cleanup_expired_rules(&self) -> Result<usize, String> {
+        let conn = self.conn.lock().unwrap();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        let count = conn.execute(
+            "DELETE FROM firewall_rules WHERE expires_at IS NOT NULL AND expires_at <= ?1",
+            params![now],
+        )
+        .map_err(|e| format!("Cleanup expired rules failed: {}", e))?;
+        Ok(count)
+    }
+
+    pub fn cleanup_session_rules(&self) -> Result<usize, String> {
+        let conn = self.conn.lock().unwrap();
+        let count = conn.execute(
+            "DELETE FROM firewall_rules WHERE lifetime = 'session'",
+            [],
+        )
+        .map_err(|e| format!("Cleanup session rules failed: {}", e))?;
+        Ok(count)
     }
 
     pub fn delete_firewall_rule(&self, app_id: &str) -> Result<(), String> {
@@ -796,12 +898,22 @@ impl Database {
 
     // ---- App connections (auto-discovered apps) ----
 
-    pub fn upsert_app_connection(&self, app_id: &str, app_name: &str, app_path: Option<&str>, is_apple: bool) -> Result<(), String> {
+    /// Upsert an app connection record. Returns `true` if this is a newly discovered app.
+    pub fn upsert_app_connection(&self, app_id: &str, app_name: &str, app_path: Option<&str>, is_apple: bool) -> Result<bool, String> {
         let conn = self.conn.lock().unwrap();
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_millis() as u64;
+
+        // Check if this app already exists
+        let is_new = conn
+            .query_row(
+                "SELECT 1 FROM app_connections WHERE app_id = ?1",
+                params![app_id],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
 
         conn.execute(
             "INSERT INTO app_connections (app_id, app_name, app_path, first_seen_ms, last_seen_ms, total_connections, is_apple_signed)
@@ -813,7 +925,7 @@ impl Database {
             params![app_id, app_name, app_path, now, is_apple],
         )
         .map_err(|e| format!("Upsert app connection failed: {}", e))?;
-        Ok(())
+        Ok(!is_new)
     }
 
     pub fn get_app_connections(&self) -> Result<Vec<AppConnectionInfo>, String> {

@@ -7,6 +7,11 @@ export interface FirewallRule {
   app_name: string;
   app_path: string | null;
   action: "allow" | "deny" | "unspecified";
+  domain: string | null;
+  port: number | null;
+  protocol: string | null;
+  expires_at: number | null;
+  lifetime: string;
   created_at: number;
   updated_at: number;
 }
@@ -22,7 +27,10 @@ export interface AppConnectionInfo {
 }
 
 export interface AppWithRule extends AppConnectionInfo {
+  /** The blanket (unscoped) rule for this app, if any */
   rule: FirewallRule | null;
+  /** All rules for this app including scoped ones */
+  rules: FirewallRule[];
   action: "allow" | "deny" | "unspecified";
   iconUrl: string | null;
 }
@@ -77,9 +85,14 @@ export function useFirewallRules() {
     return () => clearInterval(interval);
   }, [fetchAll]);
 
-  const setRule = useCallback(async (appId: string, appName: string, action: "allow" | "deny" | "unspecified") => {
+  const setRule = useCallback(async (
+    appId: string,
+    appName: string,
+    action: "allow" | "deny" | "unspecified",
+    opts?: { domain?: string; port?: number; protocol?: string; lifetime?: string; durationMins?: number },
+  ) => {
     try {
-      if (action === "unspecified") {
+      if (action === "unspecified" && !opts?.domain && !opts?.port && !opts?.protocol) {
         await invoke("delete_firewall_rule", { appId });
       } else {
         await invoke("set_firewall_rule", {
@@ -87,11 +100,25 @@ export function useFirewallRules() {
           appName,
           appPath: null,
           action,
+          domain: opts?.domain ?? null,
+          port: opts?.port ?? null,
+          protocol: opts?.protocol ?? null,
+          lifetime: opts?.lifetime ?? null,
+          durationMins: opts?.durationMins ?? null,
         });
       }
       fetchAll();
     } catch (e) {
       console.error("Failed to set firewall rule:", e);
+    }
+  }, [fetchAll]);
+
+  const deleteRuleById = useCallback(async (id: string) => {
+    try {
+      await invoke("delete_firewall_rule_by_id", { id });
+      fetchAll();
+    } catch (e) {
+      console.error("Failed to delete firewall rule:", e);
     }
   }, [fetchAll]);
 
@@ -105,13 +132,23 @@ export function useFirewallRules() {
   }, []);
 
   // Merge apps with rules and icons
-  const rulesMap = new Map(rules.map(r => [r.app_id, r]));
+  // Group rules by app_id
+  const rulesByApp = new Map<string, FirewallRule[]>();
+  for (const r of rules) {
+    const list = rulesByApp.get(r.app_id) || [];
+    list.push(r);
+    rulesByApp.set(r.app_id, list);
+  }
+
   const appsWithRules: AppWithRule[] = apps.map(app => {
-    const rule = rulesMap.get(app.app_id) || null;
+    const appRules = rulesByApp.get(app.app_id) || [];
+    // Blanket rule = one with no domain/port/protocol scoping
+    const blanketRule = appRules.find(r => !r.domain && !r.port && !r.protocol) || null;
     return {
       ...app,
-      rule,
-      action: rule?.action || "unspecified",
+      rule: blanketRule,
+      rules: appRules,
+      action: blanketRule?.action || "unspecified",
       iconUrl: iconMap.get(app.app_id) || null,
     };
   });
@@ -122,6 +159,7 @@ export function useFirewallRules() {
     mode,
     setRule,
     setMode,
+    deleteRuleById,
     refresh: fetchAll,
   };
 }

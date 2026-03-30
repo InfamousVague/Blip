@@ -1,42 +1,29 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { Marker } from "react-map-gl/maplibre";
 import type { EndpointData } from "../hooks/useArcAnimation";
-import type { EndpointType } from "../utils/endpoint-type";
-import { getBrandIcon } from "../utils/brand-icons";
+import { calculateBearing } from "../utils/arc-geometry";
 import { Tag } from "@mattmattmattmatt/base/primitives/tag/Tag";
 import "@mattmattmattmatt/base/primitives/tag/tag.css";
 import { Chip } from "@mattmattmattmatt/base/primitives/chip/Chip";
 import "@mattmattmattmatt/base/primitives/chip/chip.css";
 
-import containerIcon from "../assets/icons/container.png";
-import serverIcon from "../assets/icons/server.png";
-import chatIcon from "../assets/icons/chat.png";
-import streamingIcon from "../assets/icons/streaming.png";
-import shieldIcon from "../assets/icons/shield.png";
-
-const ICON_MAP: Record<EndpointType, string> = {
-  server: serverIcon,
-  chat: chatIcon,
-  streaming: streamingIcon,
-  shield: shieldIcon,
-};
-
-const ISO_TRANSFORM = "perspective(800px) rotateX(36deg) rotateZ(-42deg) skewX(6.5deg) skewY(4.5deg) scaleX(1.28) scaleY(0.78)";
-
-// Brands with very dark hex colors that need to be inverted to white on glass
-const DARK_BRANDS = new Set(["apple", "x", "github", "anthropic"]);
+const ROTATION_MS = 8000; // must match RadarMinimap
+const TWO_PI = Math.PI * 2;
 
 interface Props {
   endpoints: EndpointData[];
   zoom: number;
   selectedId?: string | null;
   onSelect?: (endpoint: EndpointData) => void;
+  userLocation?: [number, number] | null;
 }
 
-export function EndpointLayer({ endpoints, zoom, selectedId, onSelect }: Props) {
-  // Original sizing
-  const size = Math.max(16, Math.round(22 + (zoom - 1.5) * (44 / 8.5)));
+export function EndpointLayer({ endpoints, zoom, selectedId, onSelect, userLocation }: Props) {
   const [hovered, setHovered] = useState<{ ep: EndpointData; x: number; y: number } | null>(null);
+  // Track which endpoints are currently rippling (keyed by ep.id → ripple progress 0-1)
+  const [ripples, setRipples] = useState<Map<string, number>>(new Map());
+  const rafRef = useRef(0);
+  const lastSweptRef = useRef(new Set<string>());
 
   const onMouseEnter = useCallback((ep: EndpointData, e: React.MouseEvent) => {
     setHovered({ ep, x: e.clientX, y: e.clientY });
@@ -50,11 +37,70 @@ export function EndpointLayer({ endpoints, zoom, selectedId, onSelect }: Props) 
     setHovered(null);
   }, []);
 
+  // Sync ripples with radar sweep
+  useEffect(() => {
+    if (!userLocation || endpoints.length === 0) return;
+
+    const [userLon, userLat] = userLocation;
+
+    const animate = () => {
+      rafRef.current = requestAnimationFrame(animate);
+      const now = performance.now();
+      const sweepAngle = ((now / ROTATION_MS) * TWO_PI) % TWO_PI;
+
+      const newRipples = new Map<string, number>();
+      const currentlySwept = new Set<string>();
+
+      for (const ep of endpoints) {
+        const [epLon, epLat] = ep.position;
+        const bearing = calculateBearing(userLat, userLon, epLat, epLon);
+        // Normalize bearing to 0..2π
+        const normBearing = ((bearing % TWO_PI) + TWO_PI) % TWO_PI;
+
+        // Check if sweep just passed this endpoint (within ~15°)
+        let trail = ((sweepAngle - normBearing) % TWO_PI + TWO_PI) % TWO_PI;
+        if (trail < 0.25) {
+          currentlySwept.add(ep.id);
+          if (!lastSweptRef.current.has(ep.id)) {
+            // Just got swept — start a ripple
+            newRipples.set(ep.id, 0);
+          }
+        }
+      }
+
+      lastSweptRef.current = currentlySwept;
+
+      // Update existing ripples
+      setRipples(prev => {
+        const updated = new Map(prev);
+        // Add new ripples
+        for (const [id, t] of newRipples) {
+          if (!updated.has(id)) updated.set(id, t);
+        }
+        // Advance all ripples
+        for (const [id, t] of updated) {
+          const next = t + 0.02; // ~60fps, completes in ~50 frames (~0.8s)
+          if (next >= 1) {
+            updated.delete(id);
+          } else {
+            updated.set(id, next);
+          }
+        }
+        return updated;
+      });
+    };
+
+    rafRef.current = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [endpoints, userLocation]);
+
   return (
     <>
       {endpoints.map((ep) => {
-        const brand = getBrandIcon(ep.domain, ep.serviceName);
         const isSelected = selectedId === ep.id;
+        const color = ep.connectionDetails[0]?.color || "#6366f1";
+        const rippleT = ripples.get(ep.id);
+        const dotSize = 6 + Math.min(ep.connectionCount, 5) * 1;
 
         return (
           <Marker
@@ -62,71 +108,75 @@ export function EndpointLayer({ endpoints, zoom, selectedId, onSelect }: Props) 
             longitude={ep.position[0]}
             latitude={ep.position[1]}
             anchor="center"
-            style={{ zIndex: 10 }}
+            style={{ zIndex: isSelected ? 12 : 10 }}
           >
-            <div className="endpoint-marker" style={{ position: "relative" }}>
-              {brand ? (
-                // Brand icon composited on glass container
+            <div
+              className="endpoint-dot-wrapper"
+              style={{ position: "relative", width: dotSize + 40, height: dotSize + 40 }}
+              onClick={(e) => { e.stopPropagation(); onSelect?.(ep); }}
+              onMouseEnter={(e) => onMouseEnter(ep, e)}
+              onMouseMove={(e) => onMouseMove(ep, e)}
+              onMouseLeave={onMouseLeave}
+            >
+              {/* Ripple ring */}
+              {rippleT !== undefined && (
                 <div
-                  className={`endpoint-glass${isSelected ? " endpoint-icon--selected" : ""}`}
-                  style={{ width: size, height: size, cursor: "pointer" }}
-                  onClick={(e) => { e.stopPropagation(); onSelect?.(ep); }}
-                  onMouseEnter={(e) => onMouseEnter(ep, e)}
-                  onMouseMove={(e) => onMouseMove(ep, e)}
-                  onMouseLeave={onMouseLeave}
-                >
-                  {/* Glass container */}
-                  <img
-                    src={containerIcon}
-                    alt=""
-                    className="endpoint-glass__container"
-                    style={{ width: size, height: size }}
-                  />
-                  {/* Brand glow (blurred duplicate behind) */}
-                  <img
-                    src={brand.url}
-                    alt=""
-                    className="endpoint-glass__glow"
-                    style={{
-                      width: size * 0.38,
-                      height: size * 0.38,
-                      top: `calc(50% - ${size * 0.38 / 2}px - ${size * 0.06}px)`,
-                      left: `calc(50% - ${size * 0.38 / 2}px)`,
-                      filter: DARK_BRANDS.has(brand.brandName) ? "blur(8px) brightness(1.4) invert(1)" : "blur(8px) brightness(1.4)",
-                      opacity: 1,
-                      transform: ISO_TRANSFORM,
-                    }}
-                  />
-                  {/* Brand icon (main) */}
-                  <img
-                    src={brand.url}
-                    alt={brand.brandName}
-                    className="endpoint-glass__brand"
-                    style={{
-                      width: size * 0.38,
-                      height: size * 0.38,
-                      top: `calc(50% - ${size * 0.38 / 2}px - ${size * 0.06}px)`,
-                      left: `calc(50% - ${size * 0.38 / 2}px)`,
-                      transform: ISO_TRANSFORM,
-                      ...(DARK_BRANDS.has(brand.brandName) ? { filter: "invert(1)" } : {}),
-                    }}
-                  />
-                </div>
-              ) : (
-                // Fallback: glassmorphism type icons (already have the glass look baked in)
-                <img
-                  src={ICON_MAP[ep.type]}
-                  alt={ep.type}
-                  className={`endpoint-icon${isSelected ? " endpoint-icon--selected" : ""}`}
-                  style={{ width: size, height: size, display: "block" }}
-                  onClick={(e) => { e.stopPropagation(); onSelect?.(ep); }}
-                  onMouseEnter={(e) => onMouseEnter(ep, e)}
-                  onMouseMove={(e) => onMouseMove(ep, e)}
-                  onMouseLeave={onMouseLeave}
+                  style={{
+                    position: "absolute",
+                    top: "50%",
+                    left: "50%",
+                    width: dotSize + rippleT * 36,
+                    height: dotSize + rippleT * 36,
+                    borderRadius: "50%",
+                    border: `1.5px solid ${color}`,
+                    opacity: (1 - rippleT) * 0.6,
+                    transform: "translate(-50%, -50%)",
+                    pointerEvents: "none",
+                  }}
                 />
               )}
+              {/* Glow */}
+              <div
+                style={{
+                  position: "absolute",
+                  top: "50%",
+                  left: "50%",
+                  width: dotSize + 8,
+                  height: dotSize + 8,
+                  borderRadius: "50%",
+                  background: color,
+                  opacity: 0.15,
+                  filter: "blur(6px)",
+                  transform: "translate(-50%, -50%)",
+                  pointerEvents: "none",
+                }}
+              />
+              {/* Dot */}
+              <div
+                style={{
+                  position: "absolute",
+                  top: "50%",
+                  left: "50%",
+                  width: dotSize,
+                  height: dotSize,
+                  borderRadius: "50%",
+                  background: color,
+                  border: isSelected ? "2px solid white" : `1.5px solid rgba(255,255,255,0.3)`,
+                  transform: "translate(-50%, -50%)",
+                  cursor: "pointer",
+                  transition: "border 0.15s ease",
+                }}
+              />
+              {/* Label */}
               {(ep.datacenter || ep.city || ep.country) && zoom >= 3 && (
-                <div className="endpoint-label">
+                <div style={{
+                  position: "absolute",
+                  top: "50%",
+                  left: "50%",
+                  transform: `translate(-50%, ${dotSize / 2 + 6}px)`,
+                  pointerEvents: "none",
+                  whiteSpace: "nowrap",
+                }}>
                   <Tag size="sm" style={{ background: "rgba(0, 0, 0, 0.75)", color: "rgba(255, 255, 255, 0.9)" }}>
                     {ep.datacenter || ep.city || ep.country}
                   </Tag>

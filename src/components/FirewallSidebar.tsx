@@ -20,7 +20,13 @@ type StatusFilter = "all" | "allow" | "deny";
 
 interface Props {
   apps: AppWithRule[];
-  onSetRule: (appId: string, appName: string, action: "allow" | "deny" | "unspecified") => void;
+  onSetRule: (
+    appId: string,
+    appName: string,
+    action: "allow" | "deny" | "unspecified",
+    opts?: { domain?: string; port?: number; protocol?: string; lifetime?: string; durationMins?: number },
+  ) => void;
+  onDeleteRuleById?: (id: string) => void;
   connections?: ResolvedConnection[];
 }
 
@@ -33,7 +39,7 @@ function getAppDisplayName(appId: string): string {
 }
 
 /** Firewall content — renders inside the shared Sidebar wrapper */
-export function FirewallContent({ apps, onSetRule, connections = [] }: Props) {
+export function FirewallContent({ apps, onSetRule, onDeleteRuleById, connections = [] }: Props) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<StatusFilter>("all");
   const [expandedApp, setExpandedApp] = useState<string | null>(null);
@@ -43,47 +49,79 @@ export function FirewallContent({ apps, onSetRule, connections = [] }: Props) {
   // NE sets process_name to the bundle ID; nettop uses the executable name.
   // Build a lookup: for each app, sum bytes from all connections whose
   // process_name matches the app_id, app_name, or display name.
-  const { bytesMap, maxBytes } = useMemo(() => {
-    // First pass: bucket connection bytes by process_name
-    const byProcess = new Map<string, number>();
+  const { bytesMap, bytesSentMap, bytesRecvMap, maxBytes } = useMemo(() => {
+    // First pass: bucket connection bytes by process_name (both total and split)
+    const byProcess = new Map<string, { total: number; sent: number; recv: number }>();
     for (const c of connections) {
       if (!c.process_name) continue;
-      const total = c.bytes_sent + c.bytes_received;
       const key = c.process_name.toLowerCase();
-      byProcess.set(key, (byProcess.get(key) || 0) + total);
+      const existing = byProcess.get(key) || { total: 0, sent: 0, recv: 0 };
+      existing.total += c.bytes_sent + c.bytes_received;
+      existing.sent += c.bytes_sent;
+      existing.recv += c.bytes_received;
+      byProcess.set(key, existing);
+    }
+
+    // Build a secondary index by last bundle ID segment for fuzzy matching
+    // e.g. "chrome" → bytes from "com.google.chrome"
+    const byShortName = new Map<string, { total: number; sent: number; recv: number }>();
+    for (const [proc, data] of byProcess) {
+      const lastSeg = proc.split(".").pop();
+      if (lastSeg && lastSeg !== proc) {
+        const existing = byShortName.get(lastSeg) || { total: 0, sent: 0, recv: 0 };
+        existing.total += data.total;
+        existing.sent += data.sent;
+        existing.recv += data.recv;
+        byShortName.set(lastSeg, existing);
+      }
     }
 
     // Second pass: for each app, find matching bytes
     const result = new Map<string, number>();
+    const sentResult = new Map<string, number>();
+    const recvResult = new Map<string, number>();
     let max = 0;
+
     for (const app of apps) {
       const candidates = [
         app.app_id.toLowerCase(),
         app.app_name.toLowerCase(),
         getAppDisplayName(app.app_id).toLowerCase(),
       ];
-      let bytes = 0;
+
+      let match: { total: number; sent: number; recv: number } | undefined;
+
+      // Try exact match against process names
       for (const key of candidates) {
-        const found = byProcess.get(key);
-        if (found) { bytes = Math.max(bytes, found); break; }
+        match = byProcess.get(key);
+        if (match) break;
       }
-      // Also try matching process_name keys that contain the last segment
-      // e.g. process "com.google.Chrome" matches app_id "com.google.Chrome"
-      if (bytes === 0) {
+
+      // Try short name match (last segment of bundle ID)
+      if (!match) {
         const lastSeg = app.app_id.split(".").pop()?.toLowerCase();
         if (lastSeg) {
-          for (const [proc, procBytes] of byProcess) {
-            if (proc === lastSeg || proc.endsWith(`.${lastSeg}`)) {
-              bytes = procBytes;
-              break;
+          match = byProcess.get(lastSeg) || byShortName.get(lastSeg);
+          // Also try: process keys that contain any app segment
+          if (!match) {
+            for (const [proc, procData] of byProcess) {
+              const procLast = proc.split(".").pop() || proc;
+              if (procLast === lastSeg || lastSeg.includes(procLast) || procLast.includes(lastSeg)) {
+                match = procData;
+                break;
+              }
             }
           }
         }
       }
+
+      const bytes = match?.total ?? 0;
       result.set(app.app_id, bytes);
+      sentResult.set(app.app_id, match?.sent ?? 0);
+      recvResult.set(app.app_id, match?.recv ?? 0);
       if (bytes > max) max = bytes;
     }
-    return { bytesMap: result, maxBytes: max };
+    return { bytesMap: result, bytesSentMap: sentResult, bytesRecvMap: recvResult, maxBytes: max };
   }, [apps, connections]);
 
   const filtered = useMemo(() => {
@@ -160,6 +198,8 @@ export function FirewallContent({ apps, onSetRule, connections = [] }: Props) {
           visible.map((app) => {
             const name = getAppDisplayName(app.app_id);
             const bytes = bytesMap.get(app.app_id) || 0;
+            const bytesSent = bytesSentMap.get(app.app_id) || 0;
+            const bytesRecv = bytesRecvMap.get(app.app_id) || 0;
             return (
               <FirewallAppRow
                 key={app.app_id}
@@ -170,7 +210,11 @@ export function FirewallContent({ apps, onSetRule, connections = [] }: Props) {
                   setExpandedApp(expandedApp === app.app_id ? null : app.app_id)
                 }
                 onSetAction={(action) => onSetRule(app.app_id, app.app_name, action)}
+                onAddScopedRule={(action, opts) => onSetRule(app.app_id, app.app_name, action, opts)}
+                onDeleteRuleById={onDeleteRuleById}
                 bytes={bytes}
+                bytesSent={bytesSent}
+                bytesReceived={bytesRecv}
                 maxBytes={maxBytes}
               />
             );

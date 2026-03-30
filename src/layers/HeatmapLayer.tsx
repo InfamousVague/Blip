@@ -1,96 +1,109 @@
-import { useMemo, useEffect, useRef, useCallback, useState } from "react";
-import { Source, Layer } from "react-map-gl/maplibre";
-import type { HeatmapLayerSpecification } from "maplibre-gl";
+import { useEffect, useRef, useCallback, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { HistoricalEndpoint } from "../types/connection";
+import type { HistoricalEndpoint, ResolvedConnection } from "../types/connection";
+import type { HeatmapPoint } from "./ArcLayer";
 
 interface Props {
   /** Seed data loaded on app mount (avoids an extra fetch on first show) */
   initialEndpoints?: HistoricalEndpoint[];
+  /** Live connections for real-time heatmap data (merged with historical) */
+  liveConnections?: ResolvedConnection[];
   visible: boolean;
 }
 
-const REFRESH_INTERVAL_MS = 30_000;
+const DB_REFRESH_MS = 30_000;
+const LIVE_SNAPSHOT_MS = 5_000; // Only rebuild from live data every 5s
 
-// Empty geojson to use when no data is available (avoids conditional Source rendering)
-const EMPTY_GEOJSON: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
+/**
+ * Data-only hook for heatmap points.
+ * Merges historical DB endpoints with live connections on a throttled interval
+ * to avoid expensive Deck.gl HeatmapLayer rebuilds on every poll cycle.
+ */
+export function useHeatmapData({ initialEndpoints, liveConnections, visible }: Props): HeatmapPoint[] {
+  const [points, setPoints] = useState<HeatmapPoint[]>([]);
+  const dbEndpointsRef = useRef<HistoricalEndpoint[]>(initialEndpoints ?? []);
+  const liveRef = useRef<ResolvedConnection[]>([]);
+  const dbIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const snapshotIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-export function HeatmapLayer({ initialEndpoints, visible }: Props) {
-  const [endpoints, setEndpoints] = useState<HistoricalEndpoint[]>(initialEndpoints ?? []);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Keep live ref current without triggering re-renders
+  liveRef.current = liveConnections ?? [];
 
-  const refresh = useCallback(async () => {
+  const refreshDb = useCallback(async () => {
     try {
       const eps = await invoke<HistoricalEndpoint[]>("get_historical_endpoints");
-      setEndpoints(eps);
+      dbEndpointsRef.current = eps;
     } catch {
       // DB may not be ready
     }
   }, []);
 
-  // Periodically refresh from DB while visible so new connections appear
+  // Build the merged point set (called on a throttled interval, not every render)
+  const buildPoints = useCallback(() => {
+    const pointMap = new Map<string, { lon: number; lat: number; weight: number }>();
+
+    // Historical endpoints from DB
+    for (const ep of dbEndpointsRef.current) {
+      if (ep.dest_lat === 0 && ep.dest_lon === 0) continue;
+      const key = `${ep.dest_lat.toFixed(2)},${ep.dest_lon.toFixed(2)}`;
+      const existing = pointMap.get(key);
+      if (existing) {
+        existing.weight += ep.connection_count;
+      } else {
+        pointMap.set(key, { lon: ep.dest_lon, lat: ep.dest_lat, weight: ep.connection_count });
+      }
+    }
+
+    // Live connections (may not be in DB yet)
+    for (const c of liveRef.current) {
+      if (c.dest_lat === 0 && c.dest_lon === 0) continue;
+      const key = `${c.dest_lat.toFixed(2)},${c.dest_lon.toFixed(2)}`;
+      if (!pointMap.has(key)) {
+        pointMap.set(key, { lon: c.dest_lon, lat: c.dest_lat, weight: 1 });
+      }
+    }
+
+    const result: HeatmapPoint[] = [];
+    for (const { lon, lat, weight } of pointMap.values()) {
+      result.push({ position: [lon, lat], weight: Math.min(weight, 20) });
+    }
+    setPoints(result);
+  }, []);
+
+  // Accept seed data on first load
+  useEffect(() => {
+    if (initialEndpoints && initialEndpoints.length > 0 && dbEndpointsRef.current.length === 0) {
+      dbEndpointsRef.current = initialEndpoints;
+    }
+  }, [initialEndpoints]);
+
+  // Start/stop intervals based on visibility
   useEffect(() => {
     if (!visible) {
-      if (intervalRef.current) clearInterval(intervalRef.current);
+      if (dbIntervalRef.current) clearInterval(dbIntervalRef.current);
+      if (snapshotIntervalRef.current) clearInterval(snapshotIntervalRef.current);
+      dbIntervalRef.current = null;
+      snapshotIntervalRef.current = null;
+      setPoints([]);
       return;
     }
-    refresh();
-    intervalRef.current = setInterval(refresh, REFRESH_INTERVAL_MS);
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
-  }, [visible, refresh]);
 
-  // Accept updated seed data
-  useEffect(() => {
-    if (initialEndpoints && initialEndpoints.length > 0 && endpoints.length === 0) {
-      setEndpoints(initialEndpoints);
-    }
-  }, [initialEndpoints]); // eslint-disable-line react-hooks/exhaustive-deps
+    // Initial build + DB fetch
+    refreshDb().then(buildPoints);
 
-  const geojson = useMemo<GeoJSON.FeatureCollection>(() => {
-    if (endpoints.length === 0) return EMPTY_GEOJSON;
-    const features: GeoJSON.Feature[] = endpoints.map((ep) => ({
-      type: "Feature" as const,
-      geometry: { type: "Point" as const, coordinates: [ep.dest_lon, ep.dest_lat] },
-      properties: { weight: Math.min(ep.connection_count, 20) },
-    }));
-    return { type: "FeatureCollection", features };
-  }, [endpoints]);
+    // Periodic DB refresh (slow — every 30s)
+    dbIntervalRef.current = setInterval(() => {
+      refreshDb().then(buildPoints);
+    }, DB_REFRESH_MS);
 
-  // Build paint with dynamic opacity — always render the Source/Layer to avoid
-  // MapLibre source add/remove race conditions that cause the heatmap to vanish.
-  const layerStyle = useMemo<Omit<HeatmapLayerSpecification, "source">>(() => ({
-    id: "network-heatmap",
-    type: "heatmap",
-    paint: {
-      "heatmap-weight": [
-        "interpolate", ["linear"], ["get", "weight"],
-        0, 0.2, 5, 0.6, 10, 0.8, 20, 1,
-      ],
-      "heatmap-intensity": [
-        "interpolate", ["linear"], ["zoom"],
-        0, 2, 4, 3, 9, 5,
-      ],
-      "heatmap-color": [
-        "interpolate", ["linear"], ["heatmap-density"],
-        0, "rgba(0,0,0,0)",
-        0.1, "rgba(99,102,241,0.15)",
-        0.3, "rgba(99,102,241,0.4)",
-        0.5, "rgba(139,92,246,0.6)",
-        0.7, "rgba(236,72,153,0.7)",
-        0.85, "rgba(245,158,11,0.8)",
-        1, "rgba(255,255,255,0.9)",
-      ],
-      "heatmap-radius": [
-        "interpolate", ["linear"], ["zoom"],
-        0, 30, 4, 50, 8, 70, 12, 90,
-      ],
-      "heatmap-opacity": visible ? 0.8 : 0,
-    },
-  }), [visible]);
+    // Periodic live snapshot (moderate — every 5s)
+    snapshotIntervalRef.current = setInterval(buildPoints, LIVE_SNAPSHOT_MS);
 
-  return (
-    <Source id="heatmap-source" type="geojson" data={geojson}>
-      <Layer {...layerStyle} />
-    </Source>
-  );
+    return () => {
+      if (dbIntervalRef.current) clearInterval(dbIntervalRef.current);
+      if (snapshotIntervalRef.current) clearInterval(snapshotIntervalRef.current);
+    };
+  }, [visible, refreshDb, buildPoints]);
+
+  return points;
 }

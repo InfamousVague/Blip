@@ -23,7 +23,7 @@ serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
 base64 = "0.22"
-tauri = { version = "2.10.3", features = ["devtools"] }
+tauri = { version = "2.10.3", features = ["devtools", "tray-icon"] }
 tauri-plugin-log = "2"
 tauri-plugin-geolocation = "2.3.2"
 tokio = { version = "1", features = ["full"] }
@@ -36,6 +36,13 @@ rusqlite = { version = "0.31", features = ["bundled"] }
 dirs = "5"
 pcap = "2"
 libloading = "0.8"
+sysinfo = "0.33"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+cocoa = "0.26"
+objc = "0.2"
 
 [[bin]]
 name = "blip-dns-helper"

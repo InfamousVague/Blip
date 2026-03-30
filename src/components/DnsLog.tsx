@@ -7,7 +7,11 @@ import "@mattmattmattmatt/base/primitives/stack/stack.css";
 import "@mattmattmattmatt/base/primitives/text/text.css";
 import "@mattmattmattmatt/base/primitives/number-roll/number-roll.css";
 import "@mattmattmattmatt/base/primitives/pagination/pagination.css";
+import { Icon } from "@mattmattmattmatt/base/primitives/icon/Icon";
+import { globe } from "@mattmattmattmatt/base/primitives/icon/icons/globe";
+import "@mattmattmattmatt/base/primitives/icon/icon.css";
 import type { DnsQueryLogEntry, DnsStats } from "../types/connection";
+import { getBrandIcon } from "../utils/brand-icons";
 import "./DnsLog.css";
 
 interface Props {
@@ -69,12 +73,20 @@ export function DnsLog({ log, stats }: Props) {
               className={`dns-log__row${entry.is_blocked ? " dns-log__row--blocked" : ""}`}
             >
               <div className="dns-log__row-main">
+                {(() => {
+                  const brand = getBrandIcon(entry.domain);
+                  return brand ? (
+                    <img src={brand.url} alt="" className="dns-log__icon" />
+                  ) : (
+                    <span className="dns-log__icon dns-log__icon--default"><Icon icon={globe} size="xs" /></span>
+                  );
+                })()}
                 <Text
                   size="sm"
                   weight={entry.is_blocked ? "semibold" : "regular"}
                   font="mono"
                   truncate={1}
-                  style={entry.is_blocked ? { color: "var(--color-danger)" } : undefined}
+                  style={{ flex: 1, ...(entry.is_blocked ? { color: "var(--color-danger)" } : {}) }}
                 >
                   {entry.domain}
                 </Text>

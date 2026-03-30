@@ -23,8 +23,9 @@ SECRETS_FILE := $(HOME)/Development/Apps/emit/.env.github-secrets
 IDENTITY      := $(APPLE_SIGNING_IDENTITY)
 APPLE_ID      ?= InfamousVagueRat@gmail.com
 TEAM_ID       := F6ZAL7ANAD
+VERSION       := $(shell node -e "console.log(require('./src-tauri/tauri.conf.json').version)")
 APP_BUNDLE    := $(TAURI)/target/release/bundle/macos/Blip.app
-DMG           := $(TAURI)/target/release/bundle/dmg/Blip_0.1.0_aarch64.dmg
+DMG           := $(TAURI)/target/release/bundle/dmg/Blip_$(VERSION)_aarch64.dmg
 INSTALL_PATH  := /Applications/Blip.app
 
 .PHONY: all build sign notarize staple install dev clean help
@@ -78,6 +79,24 @@ dev:
 	@echo "=== Dev mode ==="
 	cd $(TAURI) && bash scripts/build-ne.sh
 	cd $(ROOT) && npm run tauri dev
+
+## Tag a release and push to GitHub (triggers CI workflow)
+## Usage: make release
+release:
+	@echo "=== Releasing v$(VERSION) ==="
+	git tag -a "v$(VERSION)" -m "Blip v$(VERSION)"
+	git push origin "v$(VERSION)"
+	@echo "✓ Tag v$(VERSION) pushed — GitHub Actions will build the release"
+
+## Local release: build + sign + notarize + create GitHub release manually
+## Usage: make local-release
+local-release: all
+	@echo "=== Creating GitHub release ==="
+	gh release create "v$(VERSION)" \
+		"$(DMG)" \
+		--title "Blip v$(VERSION)" \
+		--notes "See the assets to download and install this version." \
+		--latest
 
 ## Remove build artifacts
 clean:

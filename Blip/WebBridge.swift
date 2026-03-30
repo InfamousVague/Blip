@@ -100,16 +100,23 @@ class WebBridge: NSObject, WKScriptMessageHandler {
             return "[]"
 
         case "get_preference":
+            if let key = args["key"] as? String {
+                return rustString { blip_get_preference(key) }
+            }
             return "null"
 
         case "set_preference":
+            if let key = args["key"] as? String,
+               let value = args["value"] as? String {
+                return rustString { blip_set_preference(key, value) }
+            }
             return "{\"ok\":true}"
 
         case "get_historical_endpoints":
-            return "[]"
+            return rustString { blip_get_historical_endpoints() }
 
         case "get_historical_stats":
-            return "{\"total_connections\":0,\"total_bytes_in\":0,\"total_bytes_out\":0,\"first_seen_ms\":null,\"last_seen_ms\":null}"
+            return rustString { blip_get_historical_stats() }
 
         case "get_self_info":
             // Fetch ISP info from ip-api.com
@@ -140,6 +147,16 @@ class WebBridge: NSObject, WKScriptMessageHandler {
 
         case "add_blocklist_content":
             return "{}"
+
+        // Port / process management
+        case "get_listening_ports":
+            return rustString { blip_get_listening_ports() }
+
+        case "kill_process":
+            if let pid = args["pid"] as? Int {
+                return rustString { blip_kill_process(UInt32(pid)) }
+            }
+            return "{\"error\":\"missing pid\"}"
 
         default:
             NSLog("Blip: unknown command: %@", command)

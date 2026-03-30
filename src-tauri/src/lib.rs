@@ -13,6 +13,8 @@ mod enrichment;
 mod geoip;
 #[allow(dead_code)]
 mod ne_bridge;
+mod speedtest;
+mod dock_icon;
 
 use blocklist::{BlocklistInfo, BlocklistStore};
 use capture::nettop::{self, ConnectionState, ConnectionStore};
@@ -41,6 +43,7 @@ struct AppState {
     dns_mapping: Arc<RwLock<DnsMapping>>,
     dns_capture: Arc<tokio::sync::Mutex<Option<DnsCaptureManager>>>,
     geoip: Arc<StdRwLock<Option<Arc<GeoIp>>>>,
+    speed_test_result: Arc<Mutex<Option<speedtest::SpeedTestResult>>>,
 }
 
 /// Returns current interface byte counters (cumulative)
@@ -137,6 +140,7 @@ fn start_capture(app: tauri::AppHandle, state: tauri::State<AppState>) {
     let db_writer_for_dns = state.db_writer.clone();
     let db_for_seed = state.db.clone();
     let geoip_slot = state.geoip.clone();
+    let app_handle_for_ne = app.clone();
 
     let resource_path = app
         .path()
@@ -214,8 +218,23 @@ fn start_capture(app: tauri::AppHandle, state: tauri::State<AppState>) {
             dns_mapping.clone(),
             enricher.clone(),
             db_for_seed.clone(),
+            app_handle_for_ne.clone(),
         ).await {
             log::warn!("NE bridge failed to start (continuing without): {}", e);
+        }
+
+        // Start periodic expired-rule cleanup (every 60s)
+        {
+            let db_cleanup = db_for_seed.clone();
+            tokio::spawn(async move {
+                loop {
+                    tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+                    match db_cleanup.cleanup_expired_rules() {
+                        Ok(n) if n > 0 => log::info!("Cleaned up {} expired firewall rules", n),
+                        _ => {}
+                    }
+                }
+            });
         }
 
         // Start auto-diagnostics that write snapshots every 5s
@@ -764,10 +783,37 @@ async fn set_firewall_rule(
     app_name: String,
     app_path: Option<String>,
     action: String,
+    domain: Option<String>,
+    port: Option<u16>,
+    protocol: Option<String>,
+    lifetime: Option<String>,
+    duration_mins: Option<u64>,
 ) -> Result<db::FirewallRule, String> {
     let db = state.db.clone();
     let rule = tokio::task::spawn_blocking(move || {
-        db.set_firewall_rule(&app_id, &app_name, app_path.as_deref(), &action)
+        let lt = lifetime.as_deref().unwrap_or("permanent");
+        let expires = if lt == "timed" {
+            duration_mins.map(|m| {
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis() as u64
+                    + m * 60_000
+            })
+        } else {
+            None
+        };
+        db.set_firewall_rule(
+            &app_id,
+            &app_name,
+            app_path.as_deref(),
+            &action,
+            domain.as_deref(),
+            port,
+            protocol.as_deref(),
+            lt,
+            expires,
+        )
     })
     .await
     .map_err(|e| format!("Task error: {}", e))??;
@@ -782,6 +828,17 @@ async fn set_firewall_rule(
 async fn delete_firewall_rule(state: tauri::State<'_, AppState>, app_id: String) -> Result<(), String> {
     let db = state.db.clone();
     tokio::task::spawn_blocking(move || db.delete_firewall_rule(&app_id))
+        .await
+        .map_err(|e| format!("Task error: {}", e))??;
+
+    sync_firewall_rules_to_ne(&state).await;
+    Ok(())
+}
+
+#[tauri::command]
+async fn delete_firewall_rule_by_id(state: tauri::State<'_, AppState>, id: String) -> Result<(), String> {
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || db.delete_firewall_rule_by_id(&id))
         .await
         .map_err(|e| format!("Task error: {}", e))??;
 
@@ -831,7 +888,17 @@ async fn import_firewall_rules(state: tauri::State<'_, AppState>, json: String) 
     let db = state.db.clone();
     tokio::task::spawn_blocking(move || {
         for rule in &rules {
-            db.set_firewall_rule(&rule.app_id, &rule.app_name, rule.app_path.as_deref(), &rule.action)?;
+            db.set_firewall_rule(
+                &rule.app_id,
+                &rule.app_name,
+                rule.app_path.as_deref(),
+                &rule.action,
+                rule.domain.as_deref(),
+                rule.port,
+                rule.protocol.as_deref(),
+                &rule.lifetime,
+                rule.expires_at,
+            )?;
         }
         Ok::<(), String>(())
     })
@@ -852,7 +919,11 @@ async fn sync_firewall_rules_to_ne(state: &AppState) {
             let _ = state.db.set_preference(
                 "firewall_rules_json",
                 &serde_json::to_string(&rules.iter().map(|r| {
-                    serde_json::json!({"app_id": r.app_id, "action": r.action})
+                    let mut entry = serde_json::json!({"app_id": r.app_id, "action": r.action});
+                    if let Some(ref d) = r.domain { entry["domain"] = serde_json::json!(d); }
+                    if let Some(p) = r.port { entry["port"] = serde_json::json!(p); }
+                    if let Some(ref p) = r.protocol { entry["protocol"] = serde_json::json!(p); }
+                    entry
                 }).collect::<Vec<_>>()).unwrap_or_default(),
             );
             log::info!("Firewall rules synced: {} rules", rules.len());
@@ -975,6 +1046,178 @@ async fn get_dns_log(state: tauri::State<'_, AppState>) -> Result<Vec<DnsQueryLo
 async fn get_dns_stats(state: tauri::State<'_, AppState>) -> Result<DnsStats, String> {
     let mapping = state.dns_mapping.read().await;
     Ok(mapping.stats())
+}
+
+// ---- Speed test commands ----
+
+#[tauri::command]
+async fn run_speed_test(state: tauri::State<'_, AppState>) -> Result<speedtest::SpeedTestResult, String> {
+    let result = speedtest::run_speed_test().await?;
+    let mut cached = state.speed_test_result.lock().unwrap();
+    *cached = Some(result.clone());
+    Ok(result)
+}
+
+#[tauri::command]
+fn get_last_speed_test(state: tauri::State<AppState>) -> Option<speedtest::SpeedTestResult> {
+    state.speed_test_result.lock().unwrap().clone()
+}
+
+// ---- Port / process management (approach from Emit's PortPilot) ----
+
+#[derive(Debug, Clone, serde::Serialize)]
+struct PortEntry {
+    port: u16,
+    protocol: String,
+    state: String,
+    pid: u32,
+    process_name: String,
+    command: String,
+    connections: u32,
+}
+
+#[tauri::command]
+async fn get_listening_ports() -> Result<Vec<PortEntry>, String> {
+    tokio::task::spawn_blocking(|| {
+        // lsof -i -P -n -sTCP:LISTEN — specifically asks for LISTEN sockets only
+        let output = std::process::Command::new("lsof")
+            .args(["-i", "-P", "-n", "-sTCP:LISTEN"])
+            .output()
+            .map_err(|e| format!("lsof failed: {}", e))?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let mut entries: Vec<PortEntry> = Vec::new();
+
+        for line in stdout.lines().skip(1) {
+            // lsof columns: COMMAND PID USER FD TYPE DEVICE SIZE/OFF NODE NAME
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() < 10 { continue; }
+
+            let process_name = parts[0].to_string();
+            let pid: u32 = match parts[1].parse() {
+                Ok(p) => p,
+                Err(_) => continue,
+            };
+            let name = parts[8]; // e.g. *:3000 or 127.0.0.1:8080
+
+            let port: u16 = match name.rsplit(':').next().and_then(|p| p.parse().ok()) {
+                Some(p) => p,
+                None => continue,
+            };
+
+            let state = if parts.len() > 9 {
+                parts[9].trim_start_matches('(').trim_end_matches(')').to_string()
+            } else {
+                "LISTEN".into()
+            };
+
+            entries.push(PortEntry {
+                port,
+                protocol: "TCP".to_string(),
+                state,
+                pid,
+                process_name: process_name.clone(),
+                command: process_name,
+                connections: 0,
+            });
+        }
+
+        // Deduplicate by (pid, port) — lsof returns separate rows for IPv4/IPv6
+        let mut seen = std::collections::HashSet::new();
+        entries.retain(|e| seen.insert((e.pid, e.port)));
+
+        // Enrich with full command lines via sysinfo
+        {
+            use sysinfo::{Pid, ProcessesToUpdate, System};
+            let mut sys = System::new();
+            let pids: Vec<Pid> = entries.iter().map(|l| Pid::from_u32(l.pid)).collect();
+            sys.refresh_processes_specifics(ProcessesToUpdate::Some(&pids), true, Default::default());
+
+            let proc_map: std::collections::HashMap<u32, String> = sys.processes().iter().map(|(pid, proc_info)| {
+                let cmd_parts: Vec<String> = proc_info.cmd().iter().map(|s| s.to_string_lossy().to_string()).collect();
+                let cmd = cmd_parts.join(" ");
+                let display = if cmd.is_empty() { proc_info.name().to_string_lossy().to_string() } else { cmd };
+                (pid.as_u32(), display)
+            }).collect();
+
+            for entry in &mut entries {
+                if let Some(cmd) = proc_map.get(&entry.pid) {
+                    entry.command = cmd.clone();
+                }
+            }
+        }
+
+        // Sort by port
+        entries.sort_by_key(|e| e.port);
+
+        Ok(entries)
+    })
+    .await
+    .map_err(|e| format!("Task error: {}", e))?
+}
+
+#[tauri::command]
+async fn kill_process(pid: u32) -> Result<bool, String> {
+    tokio::task::spawn_blocking(move || {
+        use sysinfo::{Pid, ProcessesToUpdate, System};
+        let mut sys = System::new();
+        sys.refresh_processes_specifics(
+            ProcessesToUpdate::Some(&[Pid::from_u32(pid)]),
+            true,
+            Default::default(),
+        );
+        if let Some(process) = sys.process(Pid::from_u32(pid)) {
+            let name = process.name().to_string_lossy().to_string();
+            if process.kill() {
+                log::info!("Killed {} (PID {})", name, pid);
+                Ok(true)
+            } else {
+                Err(format!("Failed to kill {} (PID {})", name, pid))
+            }
+        } else {
+            Err(format!("Process {} not found", pid))
+        }
+    })
+    .await
+    .map_err(|e| format!("Task error: {}", e))?
+}
+
+#[tauri::command]
+fn get_hybrid_tile(z: u32, x: u32, y: u32) -> Result<String, String> {
+    // Look in ~/.blip/hybrid-tiles/ (not bundled — too many files for app bundle)
+    let home = dirs::home_dir().ok_or("No home dir")?;
+    let tile_path = home.join(".blip").join("hybrid-tiles")
+        .join(z.to_string()).join(x.to_string()).join(format!("{}.jpg", y));
+    if tile_path.exists() {
+        let data = std::fs::read(&tile_path).map_err(|e| e.to_string())?;
+        Ok(base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &data))
+    } else {
+        Err("Tile not found".to_string())
+    }
+}
+
+#[tauri::command]
+fn show_main_window(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+    // Hide menubar popup
+    if let Some(menubar) = app.get_webview_window("menubar") {
+        let _ = menubar.hide();
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn update_dock_icon(png_base64: String) -> Result<(), String> {
+    let data = base64::Engine::decode(
+        &base64::engine::general_purpose::STANDARD,
+        &png_base64,
+    ).map_err(|e| format!("Base64 decode error: {}", e))?;
+    dock_icon::set_dock_icon(&data);
+    Ok(())
 }
 
 /// A blocked DNS attempt with geo coordinates for map display.
@@ -1449,6 +1692,115 @@ fn chrono_now() -> String {
     format!("{}.{:03}s", d.as_secs(), d.subsec_millis())
 }
 
+fn format_rate(bytes_per_sec: f64) -> String {
+    if bytes_per_sec < 1024.0 {
+        format!("{:.0} B/s", bytes_per_sec)
+    } else if bytes_per_sec < 1024.0 * 1024.0 {
+        format!("{:.1} KB/s", bytes_per_sec / 1024.0)
+    } else if bytes_per_sec < 1024.0 * 1024.0 * 1024.0 {
+        format!("{:.1} MB/s", bytes_per_sec / (1024.0 * 1024.0))
+    } else {
+        format!("{:.1} GB/s", bytes_per_sec / (1024.0 * 1024.0 * 1024.0))
+    }
+}
+
+fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    use tauri::tray::TrayIconBuilder;
+    use tauri::image::Image;
+
+    // Create a tiny 1x1 transparent pixel — macOS requires an icon but we only want the title text
+    let icon = Image::new_owned(vec![0, 0, 0, 0], 1, 1);
+
+    let tray = TrayIconBuilder::new()
+        .icon(icon)
+        .icon_as_template(true)
+        .title("↑ — ↓ —")
+        .tooltip("Blip Network Monitor")
+        .on_tray_icon_event(|tray_icon, event| {
+            if let tauri::tray::TrayIconEvent::Click {
+                button: tauri::tray::MouseButton::Left,
+                button_state: tauri::tray::MouseButtonState::Up,
+                ..
+            } = event
+            {
+                // Open the main desktop app window
+                let app = tray_icon.app_handle();
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.unminimize();
+                    let _ = window.set_focus();
+                }
+            }
+        })
+        .build(app)?;
+
+    // Start bandwidth polling to update tray title every second
+    let tray_id = tray.id().clone();
+    let app_handle = app.handle().clone();
+
+    std::thread::spawn(move || {
+        let mut prev_in: u64 = 0;
+        let mut prev_out: u64 = 0;
+        let mut prev_time = std::time::Instant::now();
+
+        // Seed initial values
+        if let Ok(output) = std::process::Command::new("netstat").args(["-ib"]).output() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let (tin, tout) = parse_netstat_bandwidth(&stdout);
+            prev_in = tin;
+            prev_out = tout;
+        }
+
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+
+            let output = match std::process::Command::new("netstat").args(["-ib"]).output() {
+                Ok(o) => o,
+                Err(_) => continue,
+            };
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let (total_in, total_out) = parse_netstat_bandwidth(&stdout);
+
+            let now = std::time::Instant::now();
+            let elapsed = now.duration_since(prev_time).as_secs_f64();
+            if elapsed > 0.1 {
+                let rate_in = (total_in.saturating_sub(prev_in)) as f64 / elapsed;
+                let rate_out = (total_out.saturating_sub(prev_out)) as f64 / elapsed;
+
+                let title = format!("↑ {}  ↓ {}", format_rate(rate_out), format_rate(rate_in));
+
+                if let Some(tray) = app_handle.tray_by_id(&tray_id) {
+                    let _ = tray.set_title(Some(&title));
+                }
+            }
+
+            prev_in = total_in;
+            prev_out = total_out;
+            prev_time = now;
+        }
+    });
+
+    Ok(())
+}
+
+fn parse_netstat_bandwidth(stdout: &str) -> (u64, u64) {
+    let mut total_in: u64 = 0;
+    let mut total_out: u64 = 0;
+    for line in stdout.lines() {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() >= 10
+            && (parts[0].starts_with("en") || parts[0].starts_with("utun"))
+            && parts[2].starts_with("<Link")
+        {
+            if let (Ok(ib), Ok(ob)) = (parts[6].parse::<u64>(), parts[9].parse::<u64>()) {
+                total_in += ib;
+                total_out += ob;
+            }
+        }
+    }
+    (total_in, total_out)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Initialize database before Tauri builder
@@ -1557,7 +1909,19 @@ pub fn run() {
 
     eprintln!("[BOOT] Building Tauri app...");
 
+    // Clean up session-scoped and expired firewall rules from previous run
+    match db.cleanup_session_rules() {
+        Ok(n) if n > 0 => eprintln!("[BOOT] Cleaned up {} session firewall rules", n),
+        _ => {}
+    }
+    match db.cleanup_expired_rules() {
+        Ok(n) if n > 0 => eprintln!("[BOOT] Cleaned up {} expired firewall rules", n),
+        _ => {}
+    }
+
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_geolocation::init())
         .manage(AppState {
             running: Arc::new(AtomicBool::new(false)),
@@ -1571,6 +1935,7 @@ pub fn run() {
             dns_mapping: Arc::new(RwLock::new(DnsMapping::new())),
             dns_capture: Arc::new(tokio::sync::Mutex::new(None)),
             geoip: Arc::new(StdRwLock::new(None)),
+            speed_test_result: Arc::new(Mutex::new(None)),
         })
         .invoke_handler(tauri::generate_handler![
             start_capture,
@@ -1597,20 +1962,28 @@ pub fn run() {
             get_dns_log,
             get_dns_stats,
             get_blocked_attempts,
+            run_speed_test,
+            get_last_speed_test,
+            update_dock_icon,
+            get_hybrid_tile,
             activate_network_extension,
             deactivate_network_extension,
             get_network_extension_status,
             get_firewall_rules,
             set_firewall_rule,
             delete_firewall_rule,
+            delete_firewall_rule_by_id,
             get_app_list,
             get_firewall_mode,
             set_firewall_mode,
             export_firewall_rules,
             import_firewall_rules,
-            get_app_icons
+            get_app_icons,
+            get_listening_ports,
+            kill_process,
+            show_main_window
         ])
-        .setup(|_app| {
+        .setup(|app| {
             eprintln!("[BOOT] Setup starting...");
             // Always log to a fixed file path + stdout
             let log_path = std::path::PathBuf::from("/tmp/blip-debug.log");
@@ -1632,9 +2005,13 @@ pub fn run() {
                     tauri_plugin_log::TargetKind::Stdout,
                 ));
 
-            _app.handle().plugin(log_builder.build())?;
+            app.handle().plugin(log_builder.build())?;
             eprintln!("[BOOT] Log plugin initialized");
             log::info!("Blip started — logs at /tmp/blip-debug.log");
+
+            // Set up menu bar tray icon with live bandwidth text
+            setup_tray(app)?;
+
             eprintln!("[BOOT] Setup complete, running...");
             Ok(())
         })

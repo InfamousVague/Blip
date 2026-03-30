@@ -3,6 +3,7 @@ import { Stack } from "@mattmattmattmatt/base/primitives/stack/Stack";
 import { Text } from "@mattmattmattmatt/base/primitives/text/Text";
 import { Separator } from "@mattmattmattmatt/base/primitives/separator/Separator";
 import { Tag } from "@mattmattmattmatt/base/primitives/tag/Tag";
+import { Badge } from "@mattmattmattmatt/base/primitives/badge/Badge";
 import { Button } from "@mattmattmattmatt/base/primitives/button/Button";
 import { Icon } from "@mattmattmattmatt/base/primitives/icon/Icon";
 import { Collapsible } from "@mattmattmattmatt/base/primitives/collapsible/Collapsible";
@@ -11,11 +12,12 @@ import { SegmentedControl } from "@mattmattmattmatt/base/primitives/segmented-co
 import { activity } from "@mattmattmattmatt/base/primitives/icon/icons/activity";
 import { chevronDown } from "@mattmattmattmatt/base/primitives/icon/icons/chevron-down";
 import { chevronUp } from "@mattmattmattmatt/base/primitives/icon/icons/chevron-up";
+import { maximize2 } from "@mattmattmattmatt/base/primitives/icon/icons/maximize-2";
 import { BandwidthChart, BandwidthHeader } from "./BandwidthChart";
 import { BandwidthBarChart } from "./BarChart";
 import { StreamChart } from "./StreamChart";
 import { TreemapChart } from "./TreemapChart";
-import { useServiceBandwidth } from "../hooks/useServiceBandwidth";
+import type { ServiceSamplePoint, ServiceBreakdownEntry } from "../hooks/useServiceBandwidth";
 import type { BandwidthSample } from "../hooks/useBandwidth";
 import "@mattmattmattmatt/base/primitives/segmented-control/segmented-control.css";
 import { classifyEndpoint, type EndpointType } from "../utils/endpoint-type";
@@ -24,6 +26,7 @@ import "@mattmattmattmatt/base/primitives/stack/stack.css";
 import "@mattmattmattmatt/base/primitives/text/text.css";
 import "@mattmattmattmatt/base/primitives/separator/separator.css";
 import "@mattmattmattmatt/base/primitives/tag/tag.css";
+import "@mattmattmattmatt/base/primitives/badge/badge.css";
 import "@mattmattmattmatt/base/primitives/button/button.css";
 import "@mattmattmattmatt/base/primitives/icon/icon.css";
 import "@mattmattmattmatt/base/primitives/collapsible/collapsible.css";
@@ -69,15 +72,27 @@ interface ServiceStat {
   label: string;
   count: number;
   domains: string[];
+  bytesSent: number;
+  bytesReceived: number;
 }
 
 interface Props {
   connections: ResolvedConnection[];
   totalEver: number;
   bandwidth: BandwidthData;
+  serviceSamples: ServiceSamplePoint[];
+  serviceBreakdown: ServiceBreakdownEntry[];
+  serviceColors: Record<string, string>;
+  onExpandChart?: (chartMode: string) => void;
+  downloadMbps?: number;
+  uploadMbps?: number;
 }
 
 const PAGE_SIZE = 5;
+
+// SVG innerHTML for upload/download arrow icons (24x24 viewBox to match Icon component)
+const ARROW_UP_SVG = '<path d="M12 19V5M12 5l-5 5M12 5l5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>';
+const ARROW_DOWN_SVG = '<path d="M12 5v14M12 19l-5-5M12 19l5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>';
 
 const CHART_MODES = [
   { value: "bandwidth", label: "Bandwidth" },
@@ -86,10 +101,9 @@ const CHART_MODES = [
   { value: "treemap", label: "Treemap" },
 ];
 
-export function GlobalStats({ connections, totalEver, bandwidth }: Props) {
+export function GlobalStats({ connections, totalEver, bandwidth, serviceSamples, serviceBreakdown, serviceColors, onExpandChart, downloadMbps = 0, uploadMbps = 0 }: Props) {
   const [showAllServices, setShowAllServices] = useState(false);
   const [chartMode, setChartMode] = useState("bandwidth");
-  const { serviceSamples, serviceBreakdown, serviceColors } = useServiceBandwidth(connections, bandwidth);
 
   const stats = useMemo(() => {
     const active = connections.filter((c) => c.active);
@@ -121,14 +135,16 @@ export function GlobalStats({ connections, totalEver, bandwidth }: Props) {
     for (const c of connections) {
       const { type, serviceName } = classifyEndpoint(c.domain, c.process_name, c.dest_ip);
       const key = serviceName || type;
-      const existing = byService.get(key) || { type, label: serviceName || TYPE_LABELS[type], count: 0, domains: [] };
+      const existing = byService.get(key) || { type, label: serviceName || TYPE_LABELS[type], count: 0, domains: [], bytesSent: 0, bytesReceived: 0 };
       existing.count += 1;
+      existing.bytesSent += c.bytes_sent;
+      existing.bytesReceived += c.bytes_received;
       if (c.domain && !existing.domains.includes(c.domain)) {
         existing.domains.push(c.domain);
       }
       byService.set(key, existing);
     }
-    const services = [...byService.values()].sort((a, b) => b.count - a.count);
+    const services = [...byService.values()].sort((a, b) => (b.bytesSent + b.bytesReceived) - (a.bytesSent + a.bytesReceived));
 
     return { active: active.length, total: connections.length, totalEver, topProcesses, topCountries, services };
   }, [connections, totalEver]);
@@ -158,28 +174,63 @@ export function GlobalStats({ connections, totalEver, bandwidth }: Props) {
         samples={bandwidth.samples}
         totalIn={bandwidth.totalIn}
         totalOut={bandwidth.totalOut}
+        uploadMbps={uploadMbps}
+        downloadMbps={downloadMbps}
       />
 
-      {chartMode === "bandwidth" && (
-        <BandwidthChart
-          samples={bandwidth.samples}
-          totalIn={bandwidth.totalIn}
-          totalOut={bandwidth.totalOut}
-        />
-      )}
-      {chartMode === "bars" && (
-        <BandwidthBarChart
-          samples={bandwidth.samples}
-          totalIn={bandwidth.totalIn}
-          totalOut={bandwidth.totalOut}
-        />
-      )}
-      {chartMode === "stream" && (
-        <StreamChart serviceSamples={serviceSamples} serviceColors={serviceColors} />
-      )}
-      {chartMode === "treemap" && (
-        <TreemapChart serviceBreakdown={serviceBreakdown} />
-      )}
+      <div style={{ position: "relative" }}>
+        {chartMode === "bandwidth" && (
+          <BandwidthChart
+            samples={bandwidth.samples}
+            totalIn={bandwidth.totalIn}
+            totalOut={bandwidth.totalOut}
+          />
+        )}
+        {chartMode === "bars" && (
+          <BandwidthBarChart
+            samples={bandwidth.samples}
+            totalIn={bandwidth.totalIn}
+            totalOut={bandwidth.totalOut}
+          />
+        )}
+        {chartMode === "stream" && (
+          <StreamChart serviceSamples={serviceSamples} serviceColors={serviceColors} />
+        )}
+        {chartMode === "treemap" && (
+          <TreemapChart serviceBreakdown={serviceBreakdown} />
+        )}
+        <button
+          onClick={() => onExpandChart?.(chartMode)}
+          style={{
+            position: "absolute",
+            top: 6,
+            right: 6,
+            width: 24,
+            height: 24,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "rgba(255,255,255,0.06)",
+            border: "1px solid rgba(255,255,255,0.1)",
+            borderRadius: "var(--radius-sm)",
+            cursor: "pointer",
+            color: "rgba(255,255,255,0.4)",
+            padding: 0,
+            transition: "all 0.15s ease",
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = "rgba(255,255,255,0.12)";
+            e.currentTarget.style.color = "rgba(255,255,255,0.7)";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = "rgba(255,255,255,0.06)";
+            e.currentTarget.style.color = "rgba(255,255,255,0.4)";
+          }}
+          title="Expand chart"
+        >
+          <Icon icon={maximize2} size="xs" />
+        </button>
+      </div>
 
       <SegmentedControl
         options={CHART_MODES}
@@ -200,41 +251,60 @@ export function GlobalStats({ connections, totalEver, bandwidth }: Props) {
         defaultOpen
       >
         <Stack direction="vertical" gap="2" style={{ paddingTop: "var(--sp-2)" }}>
-          {visibleServices.map((svc, i) => (
-            <Stack key={`${svc.label}-${i}`} direction="horizontal" gap="2" align="center" justify="between">
-              <Stack direction="horizontal" gap="2" align="center" style={{ flex: 1, overflow: "hidden" }}>
-                <img
-                  src={(() => {
-                    // Try service label first
-                    const byLabel = getBrandIcon(null, svc.label);
-                    if (byLabel) return byLabel.url;
-                    // Then try each domain
-                    for (const d of svc.domains) {
-                      const brand = getBrandIcon(d, svc.label);
-                      if (brand) return brand.url;
-                    }
-                    return ICON_MAP[svc.type];
-                  })()}
-                  alt={svc.type}
-                  style={{ width: 32, height: 32, flexShrink: 0, borderRadius: "var(--radius-sm)", objectFit: "contain" }}
-                />
-                <Stack direction="vertical" gap="1" style={{ overflow: "hidden" }}>
-                  <Stack direction="horizontal" gap="1" align="center">
-                    <div style={{ width: 8, height: 8, borderRadius: "50%", flexShrink: 0, background: getServiceColor(svc.label) }} />
-                    <Text size="sm" weight="medium">{svc.label}</Text>
+          {visibleServices.map((svc, i) => {
+            const totalSvcBytes = svc.bytesSent + svc.bytesReceived;
+            return (
+            <Stack key={`${svc.label}-${i}`} direction="vertical" gap="1">
+              <Stack direction="horizontal" gap="2" align="center" justify="between">
+                <Stack direction="horizontal" gap="2" align="center" style={{ flex: 1, overflow: "hidden" }}>
+                  <img
+                    src={(() => {
+                      const byLabel = getBrandIcon(null, svc.label);
+                      if (byLabel) return byLabel.url;
+                      for (const d of svc.domains) {
+                        const brand = getBrandIcon(d, svc.label);
+                        if (brand) return brand.url;
+                      }
+                      return ICON_MAP[svc.type];
+                    })()}
+                    alt={svc.type}
+                    style={{ width: 32, height: 32, flexShrink: 0, borderRadius: "var(--radius-sm)", objectFit: "contain" }}
+                  />
+                  <Stack direction="vertical" gap="1" style={{ overflow: "hidden", flex: 1 }}>
+                    <Stack direction="horizontal" gap="1" align="center">
+                      <div style={{ width: 8, height: 8, borderRadius: "50%", flexShrink: 0, background: getServiceColor(svc.label) }} />
+                      <Text size="sm" weight="medium">{svc.label}</Text>
+                    </Stack>
+                    {/* Traffic badges: up/down arrows with byte values */}
+                    <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
+                      {svc.bytesSent > 0 && (
+                        <Badge variant="subtle" size="sm" icon={ARROW_UP_SVG} style={{ color: "#ec4899", background: "rgba(236, 72, 153, 0.12)" }}>
+                          {formatBytes(svc.bytesSent)}
+                        </Badge>
+                      )}
+                      {svc.bytesReceived > 0 && (
+                        <Badge variant="subtle" size="sm" icon={ARROW_DOWN_SVG} style={{ color: "#6366f1", background: "rgba(99, 102, 241, 0.12)" }}>
+                          {formatBytes(svc.bytesReceived)}
+                        </Badge>
+                      )}
+                      {totalSvcBytes === 0 && (
+                        <Badge variant="subtle" color="neutral" size="sm">{svc.count} conn</Badge>
+                      )}
+                    </div>
+                    {svc.domains.length > 0 && (
+                      <Text size="xs" color="tertiary" truncate={1}>
+                        {svc.domains.slice(0, 3).join(", ")}
+                      </Text>
+                    )}
                   </Stack>
-                  {svc.domains.length > 0 && (
-                    <Text size="xs" color="tertiary" truncate={1}>
-                      {svc.domains.slice(0, 3).join(", ")}
-                    </Text>
-                  )}
                 </Stack>
+                <Tag color="neutral" size="sm">
+                  <NumberRoll value={svc.count} minDigits={1} fontSize="var(--text-xs-size)" duration={300} />
+                </Tag>
               </Stack>
-              <Tag color="neutral" size="sm">
-                <NumberRoll value={svc.count} minDigits={1} fontSize="var(--text-xs-size)" duration={300} />
-              </Tag>
             </Stack>
-          ))}
+            );
+          })}
           {stats.services.length > PAGE_SIZE && (
             <Button
               variant="ghost"

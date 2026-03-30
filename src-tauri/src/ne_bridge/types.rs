@@ -7,6 +7,8 @@ pub struct NEEvent {
     pub type_: String,
     pub connection: Option<NEConnectionEvent>,
     pub dns: Option<NEDnsEvent>,
+    pub flow_update: Option<NEFlowUpdate>,
+    pub listening_ports: Option<Vec<NEListeningPort>>,
 }
 
 /// Connection event received from the Network Extension via Unix socket.
@@ -20,6 +22,26 @@ pub struct NEConnectionEvent {
     pub protocol: String,
     pub direction: String,
     pub timestamp_ms: u64,
+}
+
+/// Per-flow byte update from the NE — sent periodically for active flows.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NEFlowUpdate {
+    pub dest_ip: String,
+    pub dest_port: u16,
+    pub source_app_id: String,
+    pub bytes_in: u64,
+    pub bytes_out: u64,
+    pub timestamp_ms: u64,
+}
+
+/// Listening port discovered by the NE's flow inspection.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NEListeningPort {
+    pub port: u16,
+    pub protocol: String,
+    pub process_name: String,
+    pub pid: i32,
 }
 
 /// DNS query event from the NE DNS proxy, with process attribution.

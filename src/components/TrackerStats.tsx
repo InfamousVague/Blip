@@ -8,6 +8,10 @@ import "@mattmattmattmatt/base/primitives/number-roll/number-roll.css";
 import "@mattmattmattmatt/base/primitives/stack/stack.css";
 import "@mattmattmattmatt/base/primitives/text/text.css";
 import "@mattmattmattmatt/base/primitives/pagination/pagination.css";
+import { Icon } from "@mattmattmattmatt/base/primitives/icon/Icon";
+import { globe } from "@mattmattmattmatt/base/primitives/icon/icons/globe";
+import "@mattmattmattmatt/base/primitives/icon/icon.css";
+import { getBrandIcon } from "../utils/brand-icons";
 import "./TrackerStats.css";
 
 interface TrackerDomainStat {
@@ -97,8 +101,15 @@ export function TrackerStats({ visible }: Props) {
         </div>
       ) : (
         <div className="tracker-stats__list">
-          {visibleDomains.map((domain) => (
+          {visibleDomains.map((domain) => {
+            const brand = getBrandIcon(domain.domain);
+            return (
             <div key={domain.domain} className="tracker-stats__row">
+              {brand ? (
+                <img src={brand.url} alt="" className="tracker-stats__icon" />
+              ) : (
+                <span className="tracker-stats__icon tracker-stats__icon--default"><Icon icon={globe} size="xs" /></span>
+              )}
               <Stack direction="vertical" gap="1" style={{ flex: 1, overflow: "hidden" }}>
                 <Text size="sm" weight="medium" truncate={1} font="mono">
                   {domain.domain}
@@ -119,7 +130,8 @@ export function TrackerStats({ visible }: Props) {
                 </Text>
               </Stack>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
       <Pagination

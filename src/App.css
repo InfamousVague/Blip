@@ -5,6 +5,53 @@
   position: relative;
 }
 
+/* ── Update banner ── */
+
+.update-banner {
+  position: absolute;
+  top: 52px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9998;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-4);
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.85) 0%, rgba(139, 92, 246, 0.85) 100%);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 24px rgba(99, 102, 241, 0.3);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm-size);
+  color: white;
+  white-space: nowrap;
+  animation: update-banner-slide 0.3s ease-out;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+.update-banner__text {
+  font-weight: var(--weight-medium);
+}
+
+.update-banner__progress {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs-size);
+  opacity: 0.8;
+}
+
+.update-banner__error {
+  font-size: var(--text-xs-size);
+  color: rgba(255, 200, 200, 0.9);
+}
+
+@keyframes update-banner-slide {
+  from { opacity: 0; transform: translateX(-50%) translateY(-10px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
 /* ── Topbar (Claude Desktop-style dark glass bar) ── */
 
 .topbar {
@@ -201,6 +248,33 @@
   flex-direction: column;
   gap: var(--sp-1);
   z-index: 4;
+  background: rgba(10, 10, 14, 0.65);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-md);
+  padding: var(--sp-1);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+}
+
+.zoom-controls .btn {
+  background: transparent !important;
+  border-color: transparent !important;
+  backdrop-filter: none !important;
+  box-shadow: none !important;
+}
+
+.zoom-controls .btn:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+.zoom-controls .btn--primary {
+  background: rgba(255, 255, 255, 0.12) !important;
+  color: white !important;
+}
+
+.zoom-controls .btn--primary:hover {
+  background: rgba(255, 255, 255, 0.18) !important;
 }
 
 .map-btn-tooltip {
@@ -232,11 +306,6 @@
   opacity: 1;
 }
 
-/* Override Tag neutral to be visible on glass backgrounds */
-.sidebar .tag--neutral {
-  background: rgba(255, 255, 255, 0.12);
-  color: var(--color-text-primary);
-}
 
 .endpoint-icon {
   object-fit: contain;
@@ -472,5 +541,327 @@
   font-size: var(--text-xs-size);
   color: var(--color-text-tertiary);
   padding-top: 2px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Glassmorphism overrides for base primitives on glass surfaces
+   (sidebar, settings panel, setup prompt)
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── Buttons ── */
+
+.sidebar .btn--secondary,
+.settings-panel .btn--secondary,
+.setup-prompt .btn--secondary {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+.sidebar .btn--secondary:hover,
+.settings-panel .btn--secondary:hover,
+.setup-prompt .btn--secondary:hover {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+.sidebar .btn--secondary:active,
+.settings-panel .btn--secondary:active,
+.setup-prompt .btn--secondary:active {
+  background: rgba(255, 255, 255, 0.10);
+}
+
+.sidebar .btn--ghost,
+.settings-panel .btn--ghost,
+.setup-prompt .btn--ghost {
+  color: var(--color-text-secondary);
+}
+.sidebar .btn--ghost:hover,
+.settings-panel .btn--ghost:hover,
+.setup-prompt .btn--ghost:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--color-text-primary);
+}
+
+.sidebar .btn--primary,
+.settings-panel .btn--primary,
+.setup-prompt .btn--primary {
+  background: rgba(255, 255, 255, 0.90);
+  border-color: rgba(255, 255, 255, 0.90);
+  color: rgba(0, 0, 0, 0.88);
+}
+.sidebar .btn--primary:hover,
+.settings-panel .btn--primary:hover,
+.setup-prompt .btn--primary:hover {
+  background: rgba(255, 255, 255, 0.80);
+  border-color: rgba(255, 255, 255, 0.80);
+}
+
+/* ── Inputs ── */
+
+.sidebar .input-wrapper--outline,
+.settings-panel .input-wrapper--outline,
+.setup-prompt .input-wrapper--outline {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.10);
+}
+.sidebar .input-wrapper--outline:focus-within,
+.settings-panel .input-wrapper--outline:focus-within,
+.setup-prompt .input-wrapper--outline:focus-within {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.22);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.06);
+}
+
+.sidebar .input-wrapper--filled,
+.settings-panel .input-wrapper--filled,
+.setup-prompt .input-wrapper--filled {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: transparent;
+}
+.sidebar .input-wrapper--filled:focus-within,
+.settings-panel .input-wrapper--filled:focus-within,
+.setup-prompt .input-wrapper--filled:focus-within {
+  background: rgba(255, 255, 255, 0.10);
+  border-color: rgba(255, 255, 255, 0.18);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.06);
+}
+
+.sidebar .input::placeholder,
+.settings-panel .input::placeholder,
+.setup-prompt .input::placeholder {
+  color: rgba(255, 255, 255, 0.30);
+}
+
+/* ── Toggles ── */
+
+.sidebar .toggle__track,
+.settings-panel .toggle__track,
+.setup-prompt .toggle__track {
+  background: rgba(255, 255, 255, 0.10);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.sidebar .toggle__thumb,
+.settings-panel .toggle__thumb,
+.setup-prompt .toggle__thumb {
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.sidebar .toggle__input:checked + .toggle__track,
+.settings-panel .toggle__input:checked + .toggle__track,
+.setup-prompt .toggle__input:checked + .toggle__track {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.sidebar .toggle__input:focus-visible + .toggle__track,
+.settings-panel .toggle__input:focus-visible + .toggle__track,
+.setup-prompt .toggle__input:focus-visible + .toggle__track {
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.2), 0 0 0 4px rgba(255, 255, 255, 0.12);
+}
+
+/* ── Segmented Control ── */
+
+.sidebar .seg,
+.settings-panel .seg,
+.setup-prompt .seg {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.sidebar .seg__indicator,
+.settings-panel .seg__indicator,
+.setup-prompt .seg__indicator {
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+}
+
+.sidebar .seg__option,
+.settings-panel .seg__option,
+.setup-prompt .seg__option {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.sidebar .seg__option--active,
+.settings-panel .seg__option--active,
+.setup-prompt .seg__option--active {
+  color: rgba(0, 0, 0, 0.85);
+}
+
+.sidebar .seg__option:hover:not(:disabled):not(.seg__option--active),
+.settings-panel .seg__option:hover:not(:disabled):not(.seg__option--active),
+.setup-prompt .seg__option:hover:not(:disabled):not(.seg__option--active) {
+  color: rgba(255, 255, 255, 0.80);
+}
+
+/* ── Pagination ── */
+
+.sidebar .pagination__btn,
+.settings-panel .pagination__btn,
+.setup-prompt .pagination__btn {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.10);
+  color: var(--color-text-secondary);
+}
+
+.sidebar .pagination__btn:hover:not(:disabled),
+.settings-panel .pagination__btn:hover:not(:disabled),
+.setup-prompt .pagination__btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.16);
+  color: var(--color-text-primary);
+}
+
+/* ── Badge / Tag on glass (generic fallback removed — see specific overrides below) ── */
+
+/* ── Select / Combobox on glass ── */
+
+.sidebar select,
+.settings-panel select,
+.setup-prompt select {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  color: var(--color-text-primary);
+  border-radius: var(--radius-sm);
+  padding: var(--sp-1) var(--sp-3);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm-size);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.sidebar select:hover,
+.settings-panel select:hover,
+.setup-prompt select:hover {
+  background: rgba(255, 255, 255, 0.10);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+.sidebar select:focus,
+.settings-panel select:focus,
+.setup-prompt select:focus {
+  border-color: rgba(255, 255, 255, 0.22);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.06);
+  outline: none;
+}
+
+/* ── Tri-State Toggle ── */
+
+.sidebar .tri-state,
+.settings-panel .tri-state {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.10);
+}
+
+.sidebar .tri-state__btn + .tri-state__btn,
+.settings-panel .tri-state__btn + .tri-state__btn {
+  border-left-color: rgba(255, 255, 255, 0.08);
+}
+
+.sidebar .tri-state__btn:hover:not(:disabled):not(.tri-state__btn--active),
+.settings-panel .tri-state__btn:hover:not(:disabled):not(.tri-state__btn--active) {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* ── Collapsible ── */
+
+.sidebar .collapsible,
+.settings-panel .collapsible {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: transparent;
+}
+
+.sidebar .collapsible__trigger:hover,
+.settings-panel .collapsible__trigger:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.sidebar .collapsible__body,
+.settings-panel .collapsible__body {
+  border-top-color: rgba(255, 255, 255, 0.06);
+}
+
+/* ── Separator ── */
+
+.sidebar .separator--horizontal,
+.settings-panel .separator--horizontal {
+  border-top-color: rgba(255, 255, 255, 0.08);
+}
+
+.sidebar .separator--vertical,
+.settings-panel .separator--vertical {
+  border-left-color: rgba(255, 255, 255, 0.08);
+}
+
+/* ── Badge — preserve semantic colors, fix neutral variants ── */
+
+.sidebar .badge--neutral-solid,
+.settings-panel .badge--neutral-solid {
+  background: rgba(255, 255, 255, 0.18);
+  color: var(--color-text-primary);
+}
+
+.sidebar .badge--neutral-subtle,
+.settings-panel .badge--neutral-subtle {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--color-text-secondary);
+}
+
+.sidebar .badge--neutral-outline,
+.settings-panel .badge--neutral-outline {
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+/* ── Chip ── */
+
+.sidebar .chip--filled,
+.settings-panel .chip--filled {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.sidebar .chip--outlined,
+.settings-panel .chip--outlined {
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.sidebar .chip--clickable:hover,
+.settings-panel .chip--clickable:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/* ── Tag ── */
+
+.sidebar .tag--neutral,
+.settings-panel .tag--neutral {
+  background: rgba(255, 255, 255, 0.10);
+  color: var(--color-text-primary);
+}
+
+/* ── File Upload Zone ── */
+
+.settings-panel .file-upload-zone {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.settings-panel .file-upload-zone:hover {
+  border-color: rgba(255, 255, 255, 0.20);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.settings-panel .file-upload-zone--active {
+  border-color: rgba(255, 255, 255, 0.30);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* ── Scroll Area ── */
+
+.settings-panel .scroll-area::-webkit-scrollbar-thumb,
+.sidebar .scroll-area::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.10);
+}
+
+.settings-panel .scroll-area::-webkit-scrollbar-track,
+.sidebar .scroll-area::-webkit-scrollbar-track {
+  background: transparent;
 }
 

@@ -7,13 +7,14 @@ const MAX_WIDTH = 500;
 const DEFAULT_WIDTH = 340;
 
 interface SidebarProps {
-  mode: "network" | "firewall";
+  mode: "network" | "firewall" | "ports";
   networkContent: ReactNode;
   firewallContent: ReactNode;
+  portsContent?: ReactNode;
   onWidthChange?: (width: number) => void;
 }
 
-export function Sidebar({ mode, networkContent, firewallContent, onWidthChange }: SidebarProps) {
+export function Sidebar({ mode, networkContent, firewallContent, portsContent, onWidthChange }: SidebarProps) {
   const [width, setWidth] = useState(DEFAULT_WIDTH);
   const dragging = useRef(false);
   const startX = useRef(0);
@@ -73,6 +74,17 @@ export function Sidebar({ mode, networkContent, firewallContent, onWidthChange }
         <div className="sidebar__resize-handle" onMouseDown={onMouseDown} />
         <div className="sidebar__content">
           {firewallContent}
+        </div>
+      </div>
+
+      {/* Ports sidebar */}
+      <div
+        className={`sidebar ${mode === "ports" ? "sidebar--active" : "sidebar--hidden"}`}
+        style={{ width }}
+      >
+        <div className="sidebar__resize-handle" onMouseDown={onMouseDown} />
+        <div className="sidebar__content">
+          {portsContent}
         </div>
       </div>
     </>

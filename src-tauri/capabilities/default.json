@@ -3,7 +3,8 @@
   "identifier": "default",
   "description": "enables the default permissions",
   "windows": [
-    "main"
+    "main",
+    "menubar"
   ],
   "permissions": [
     "core:default",
@@ -13,6 +14,9 @@
     "geolocation:allow-get-current-position",
     "geolocation:allow-watch-position",
     "geolocation:allow-clear-watch",
-    "core:window:allow-start-dragging"
+    "core:window:allow-start-dragging",
+    "updater:default",
+    "process:allow-restart",
+    "process:allow-exit"
   ]
 }

@@ -79,41 +79,96 @@
   gap: var(--sp-1);
 }
 
-/* ── Data usage bar ── */
-
-.fw-row__bar-row {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  margin-top: 2px;
-}
-
-.fw-row__bar-track {
-  flex: 1;
-  height: 4px;
-  border-radius: 2px;
-  background: rgba(255, 255, 255, 0.06);
-  overflow: hidden;
-}
-
-.fw-row__bar-fill {
-  height: 100%;
-  border-radius: 2px;
-  transition: width 0.4s var(--ease-default);
-  min-width: 0;
-}
-
-.fw-row__bar-label {
-  flex-shrink: 0;
-  min-width: 48px;
-  text-align: right;
-}
+/* (Traffic badges use the Badge primitive from Base UI) */
 
 /* ── Detail panel ── */
 
 .fw-row__detail-row {
   display: flex;
   justify-content: space-between;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+/* ── Scoped rules ── */
+
+.fw-row__rules-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  margin-top: var(--sp-1);
+}
+
+.fw-row__rule-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-2);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.fw-row__rule-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.fw-row__rule-delete {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  transition: color 0.15s ease;
+}
+
+.fw-row__rule-delete:hover {
+  color: var(--color-error);
+}
+
+/* ── Add rule ── */
+
+.fw-row__add-rule-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: var(--sp-1) var(--sp-2);
+  margin-top: var(--sp-1);
+  background: none;
+  border: 1px dashed rgba(255, 255, 255, 0.10);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--color-text-tertiary);
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.fw-row__add-rule-btn:hover {
+  border-color: rgba(255, 255, 255, 0.18);
+  color: var(--color-text-secondary);
+}
+
+.fw-row__add-rule-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+  padding: var(--sp-2);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.fw-row__add-rule-actions {
+  display: flex;
   align-items: center;
   gap: var(--sp-2);
 }
