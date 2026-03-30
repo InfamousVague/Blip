@@ -1,12 +1,16 @@
 # Blip — Build, Sign, Notarize, Install
 # Usage:
-#   make          — full release: build → post-build → notarize → install
-#   make build    — tauri release build + NE compile
-#   make sign     — post-build signing only (no rebuild)
-#   make notarize — notarize + staple the DMG
-#   make install  — install notarized app to /Applications
-#   make dev      — run in dev mode (no notarization needed)
-#   make clean    — remove build artifacts
+#   make              — full pipeline: build → sign → notarize → install
+#   make release      — bump patch, commit, tag, push (CI builds it)
+#   make release BUMP=minor  — bump minor version
+#   make release BUMP=major  — bump major version
+#   make local-release       — bump + build + sign + notarize + upload DMG
+#   make build        — tauri release build + NE compile
+#   make sign         — post-build signing only (no rebuild)
+#   make notarize     — notarize + staple the DMG
+#   make install      — install notarized app to /Applications
+#   make dev          — run in dev mode (no notarization needed)
+#   make clean        — remove build artifacts
 
 SHELL := /bin/bash
 ROOT  := $(shell pwd)
@@ -28,7 +32,7 @@ APP_BUNDLE    := $(TAURI)/target/release/bundle/macos/Blip.app
 DMG           := $(TAURI)/target/release/bundle/dmg/Blip_$(VERSION)_aarch64.dmg
 INSTALL_PATH  := /Applications/Blip.app
 
-.PHONY: all build sign notarize staple install dev clean help
+.PHONY: all build sign notarize staple install dev release local-release clean help
 
 ## Default: full pipeline
 all: build sign notarize install
@@ -80,23 +84,78 @@ dev:
 	cd $(TAURI) && bash scripts/build-ne.sh
 	cd $(ROOT) && npm run tauri dev
 
-## Tag a release and push to GitHub (triggers CI workflow)
-## Usage: make release
-release:
-	@echo "=== Releasing v$(VERSION) ==="
-	git tag -a "v$(VERSION)" -m "Blip v$(VERSION)"
-	git push origin "v$(VERSION)"
-	@echo "✓ Tag v$(VERSION) pushed — GitHub Actions will build the release"
+## Bump version (patch), commit, tag, push — triggers CI release
+## Usage: make release            (bumps patch: 0.3.0 → 0.3.1)
+##        make release BUMP=minor (bumps minor: 0.3.0 → 0.4.0)
+##        make release BUMP=major (bumps major: 0.3.0 → 1.0.0)
+BUMP ?= patch
 
-## Local release: build + sign + notarize + create GitHub release manually
-## Usage: make local-release
-local-release: all
-	@echo "=== Creating GitHub release ==="
-	gh release create "v$(VERSION)" \
-		"$(DMG)" \
-		--title "Blip v$(VERSION)" \
+release:
+	@CURRENT=$(VERSION); \
+	IFS='.' read -r MAJOR MINOR PATCH <<< "$$CURRENT"; \
+	if [ "$(BUMP)" = "major" ]; then \
+		MAJOR=$$((MAJOR + 1)); MINOR=0; PATCH=0; \
+	elif [ "$(BUMP)" = "minor" ]; then \
+		MINOR=$$((MINOR + 1)); PATCH=0; \
+	else \
+		PATCH=$$((PATCH + 1)); \
+	fi; \
+	NEW="$$MAJOR.$$MINOR.$$PATCH"; \
+	echo "=== Bumping $$CURRENT → $$NEW ==="; \
+	node -e " \
+		const fs = require('fs'); \
+		const f = 'src-tauri/tauri.conf.json'; \
+		const c = JSON.parse(fs.readFileSync(f, 'utf8')); \
+		c.version = '$$NEW'; \
+		fs.writeFileSync(f, JSON.stringify(c, null, 2) + '\n'); \
+	"; \
+	sed -i '' "s/^version = \"$$CURRENT\"/version = \"$$NEW\"/" src-tauri/Cargo.toml; \
+	git add src-tauri/tauri.conf.json src-tauri/Cargo.toml; \
+	git commit -m "Blip v$$NEW"; \
+	git tag -a "v$$NEW" -m "Blip v$$NEW"; \
+	git push origin main; \
+	git push origin "v$$NEW"; \
+	echo ""; \
+	echo "✓ v$$NEW tagged and pushed — GitHub Actions will build the release"
+
+## Local release: bump version, build + sign + notarize + upload to GitHub
+## Usage: make local-release            (bumps patch)
+##        make local-release BUMP=minor
+local-release:
+	@CURRENT=$(VERSION); \
+	IFS='.' read -r MAJOR MINOR PATCH <<< "$$CURRENT"; \
+	if [ "$(BUMP)" = "major" ]; then \
+		MAJOR=$$((MAJOR + 1)); MINOR=0; PATCH=0; \
+	elif [ "$(BUMP)" = "minor" ]; then \
+		MINOR=$$((MINOR + 1)); PATCH=0; \
+	else \
+		PATCH=$$((PATCH + 1)); \
+	fi; \
+	NEW="$$MAJOR.$$MINOR.$$PATCH"; \
+	echo "=== Bumping $$CURRENT → $$NEW ==="; \
+	node -e " \
+		const fs = require('fs'); \
+		const f = 'src-tauri/tauri.conf.json'; \
+		const c = JSON.parse(fs.readFileSync(f, 'utf8')); \
+		c.version = '$$NEW'; \
+		fs.writeFileSync(f, JSON.stringify(c, null, 2) + '\n'); \
+	"; \
+	sed -i '' "s/^version = \"$$CURRENT\"/version = \"$$NEW\"/" src-tauri/Cargo.toml; \
+	git add src-tauri/tauri.conf.json src-tauri/Cargo.toml; \
+	git commit -m "Blip v$$NEW"
+	$(MAKE) all
+	@NEW=$$(node -e "console.log(require('./src-tauri/tauri.conf.json').version)"); \
+	DMG="$(TAURI)/target/release/bundle/dmg/Blip_$${NEW}_aarch64.dmg"; \
+	git tag -a "v$$NEW" -m "Blip v$$NEW"; \
+	git push origin main; \
+	git push origin "v$$NEW"; \
+	gh release create "v$$NEW" \
+		"$$DMG" \
+		--title "Blip v$$NEW" \
 		--notes "See the assets to download and install this version." \
-		--latest
+		--latest; \
+	echo ""; \
+	echo "✓ v$$NEW released and uploaded"
 
 ## Remove build artifacts
 clean:
@@ -105,4 +164,9 @@ clean:
 	@echo "Cleaned"
 
 help:
-	@echo "Targets: all build sign notarize staple install dev clean"
+	@echo "Targets: all build sign notarize staple install dev release local-release clean"
+	@echo ""
+	@echo "  make release            — bump patch ($(VERSION) → next), tag, push to CI"
+	@echo "  make release BUMP=minor — bump minor version"
+	@echo "  make release BUMP=major — bump major version"
+	@echo "  make local-release      — bump + full local build + upload to GitHub"
