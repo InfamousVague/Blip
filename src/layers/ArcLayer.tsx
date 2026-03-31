@@ -3,7 +3,7 @@ import { useControl } from "react-map-gl/maplibre";
 import { MapboxOverlay } from "@deck.gl/mapbox";
 import { ArcLayer as DeckArcLayer, ScatterplotLayer, TextLayer } from "@deck.gl/layers";
 import { HeatmapLayer as DeckHeatmapLayer } from "@deck.gl/aggregation-layers";
-import type { ArcData, ParticleData, BlockedMarkerData } from "../hooks/useArcAnimation";
+import type { ArcData, ParticleData, BlockedMarkerData, EndpointData } from "../hooks/useArcAnimation";
 
 export interface HeatmapPoint {
   position: [number, number]; // [lon, lat]
@@ -17,6 +17,7 @@ interface Props {
   showParticles?: boolean;
   heatmapData?: HeatmapPoint[];
   showHeatmap?: boolean;
+  endpoints?: EndpointData[];
 }
 
 function DeckGLOverlay({ layers }: { layers: any[] }) {
@@ -25,7 +26,12 @@ function DeckGLOverlay({ layers }: { layers: any[] }) {
   return null;
 }
 
-export function NetworkArcLayer({ arcs, particles = [], blockedMarkers = [], showParticles = false, heatmapData = [], showHeatmap = false }: Props) {
+function hexToRgb(hex: string): [number, number, number] {
+  const h = hex.replace("#", "");
+  return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+}
+
+export function NetworkArcLayer({ arcs, particles = [], blockedMarkers = [], showParticles = false, heatmapData = [], showHeatmap = false, endpoints = [] }: Props) {
   const frameCounter = useRef(0);
   frameCounter.current += 1;
 
@@ -38,7 +44,7 @@ export function NetworkArcLayer({ arcs, particles = [], blockedMarkers = [], sho
     getTargetColor: (d) => d.targetColor,
     getHeight: (d) => d.height,
     getWidth: (d) => d.width,
-    greatCircle: true,
+    greatCircle: false,
     numSegments: 50,
     widthMinPixels: 1,
     widthMaxPixels: 4,
@@ -76,6 +82,30 @@ export function NetworkArcLayer({ arcs, particles = [], blockedMarkers = [], sho
       },
     });
     layers.push(heatmap);
+  }
+
+  // Ambient endpoint glow — subtle colored halos under active endpoints
+  if (endpoints.length > 0) {
+    const glowLayer = new ScatterplotLayer<EndpointData>({
+      id: "endpoint-ambient-glow",
+      data: endpoints,
+      getPosition: (d) => d.position,
+      getFillColor: (d) => {
+        const color = d.connectionDetails[0]?.color || "#6366f1";
+        const [r, g, b] = hexToRgb(color);
+        return [r, g, b, 30] as [number, number, number, number];
+      },
+      getRadius: 80000,
+      radiusMinPixels: 20,
+      radiusMaxPixels: 80,
+      opacity: 0.15,
+      parameters: { depthTest: false } as any,
+      updateTriggers: {
+        getPosition: [endpoints.length],
+        getFillColor: [endpoints.length],
+      },
+    });
+    layers.push(glowLayer);
   }
 
   layers.push(arcLayer);

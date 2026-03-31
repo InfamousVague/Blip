@@ -1,16 +1,10 @@
 import { useState, useEffect } from "react";
-import { Stack } from "@mattmattmattmatt/base/primitives/stack/Stack";
-import { Text } from "@mattmattmattmatt/base/primitives/text/Text";
-import { Button } from "@mattmattmattmatt/base/primitives/button/Button";
+import { Button } from "./ui/components/Button";
+import { Separator } from "./ui/components/Separator";
 import { NumberRoll } from "@mattmattmattmatt/base/primitives/number-roll/NumberRoll";
-import { Separator } from "@mattmattmattmatt/base/primitives/separator/Separator";
 import { Icon } from "@mattmattmattmatt/base/primitives/icon/Icon";
 import { shieldCheck } from "@mattmattmattmatt/base/primitives/icon/icons/shield-check";
-import "@mattmattmattmatt/base/primitives/stack/stack.css";
-import "@mattmattmattmatt/base/primitives/text/text.css";
-import "@mattmattmattmatt/base/primitives/button/button.css";
 import "@mattmattmattmatt/base/primitives/number-roll/number-roll.css";
-import "@mattmattmattmatt/base/primitives/separator/separator.css";
 import "@mattmattmattmatt/base/primitives/icon/icon.css";
 import { RadarMinimap } from "./components/RadarMinimap";
 import { BandwidthHeader, BandwidthChart } from "./components/BandwidthChart";
@@ -113,22 +107,22 @@ export function MenuBarApp() {
       </div>
 
       {/* Connection count */}
-      <Stack direction="horizontal" gap="4" align="center" justify="center">
-        <Stack direction="vertical" gap="1" align="center">
-          <Text size="xs" color="tertiary" font="mono">ACTIVE</Text>
+      <div style={{ display: "flex", flexDirection: "row", gap: 16, alignItems: "center", justifyContent: "center" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "center" }}>
+          <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--blip-text-tertiary)" }}>ACTIVE</span>
           <NumberRoll value={activeCount} minDigits={2} fontSize="var(--text-lg-size)" commas />
-        </Stack>
+        </div>
         <div className="menubar-divider" />
-        <Stack direction="vertical" gap="1" align="center">
-          <Text size="xs" color="tertiary" font="mono">TOTAL</Text>
+        <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "center" }}>
+          <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--blip-text-tertiary)" }}>TOTAL</span>
           <NumberRoll value={connections.length} minDigits={2} fontSize="var(--text-lg-size)" commas />
-        </Stack>
+        </div>
         <div className="menubar-divider" />
-        <Stack direction="vertical" gap="1" align="center">
-          <Text size="xs" color="tertiary" font="mono">EVER</Text>
+        <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "center" }}>
+          <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--blip-text-tertiary)" }}>EVER</span>
           <NumberRoll value={totalEver} minDigits={3} fontSize="var(--text-lg-size)" commas />
-        </Stack>
-      </Stack>
+        </div>
+      </div>
 
       <Separator />
 
@@ -151,22 +145,22 @@ export function MenuBarApp() {
       {/* Tracker blocking stats */}
       <div className="menubar-tracker-row">
         <Icon icon={shieldCheck} size="sm" />
-        <Stack direction="vertical" gap="1" style={{ flex: 1 }}>
-          <Text size="xs" weight="medium">Tracker Protection</Text>
-          <Stack direction="horizontal" gap="3" align="center">
-            <Text size="xs" color="tertiary" font="mono">
+        <div style={{ display: "flex", flexDirection: "column", gap: 4, flex: 1 }}>
+          <span style={{ fontSize: 11, fontWeight: 500, fontFamily: "var(--font-sans)", color: "var(--blip-text-primary)" }}>Tracker Protection</span>
+          <div style={{ display: "flex", flexDirection: "row", gap: 12, alignItems: "center" }}>
+            <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--blip-text-tertiary)" }}>
               <NumberRoll value={trackerHits} minDigits={1} fontSize="var(--text-xs-size)" duration={300} commas /> blocked
-            </Text>
-            <Text size="xs" color="tertiary" font="mono">
+            </span>
+            <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--blip-text-tertiary)" }}>
               <NumberRoll value={trackerDomains} minDigits={1} fontSize="var(--text-xs-size)" duration={300} /> domains
-            </Text>
+            </span>
             {blockedConns > 0 && (
-              <Text size="xs" color="tertiary" font="mono">
+              <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--blip-text-tertiary)" }}>
                 {blockedConns} active
-              </Text>
+              </span>
             )}
-          </Stack>
-        </Stack>
+          </div>
+        </div>
       </div>
 
       {/* Open App button */}

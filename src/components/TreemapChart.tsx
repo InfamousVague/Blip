@@ -1,8 +1,4 @@
 import { Treemap, ResponsiveContainer } from "recharts";
-import { Stack } from "@mattmattmattmatt/base/primitives/stack/Stack";
-import { Text } from "@mattmattmattmatt/base/primitives/text/Text";
-import "@mattmattmattmatt/base/primitives/stack/stack.css";
-import "@mattmattmattmatt/base/primitives/text/text.css";
 import type { ServiceBreakdownEntry } from "../hooks/useServiceBandwidth";
 import "./TreemapChart.css";
 
@@ -137,9 +133,9 @@ export function TreemapChart({ serviceBreakdown }: Props) {
 
   if (data.length === 0) {
     return (
-      <Stack direction="vertical" gap="2" align="center" justify="center" style={{ height: 120 }}>
-        <Text size="sm" color="tertiary">No bandwidth data yet</Text>
-      </Stack>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "center", justifyContent: "center", height: 120 }}>
+        <span style={{ fontSize: 13, fontFamily: "var(--font-sans)", color: "var(--blip-text-tertiary)" }}>No bandwidth data yet</span>
+      </div>
     );
   }
 

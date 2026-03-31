@@ -1,16 +1,11 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Stack } from "@mattmattmattmatt/base/primitives/stack/Stack";
-import { Text } from "@mattmattmattmatt/base/primitives/text/Text";
-import { Button } from "@mattmattmattmatt/base/primitives/button/Button";
+import { Button } from "../ui/components/Button";
 import { Icon } from "@mattmattmattmatt/base/primitives/icon/Icon";
 import { Checkbox } from "@mattmattmattmatt/base/primitives/checkbox/Checkbox";
 import { shieldCheck } from "@mattmattmattmatt/base/primitives/icon/icons/shield-check";
 import { activity } from "@mattmattmattmatt/base/primitives/icon/icons/activity";
 import { zap } from "@mattmattmattmatt/base/primitives/icon/icons/zap";
-import "@mattmattmattmatt/base/primitives/stack/stack.css";
-import "@mattmattmattmatt/base/primitives/text/text.css";
-import "@mattmattmattmatt/base/primitives/button/button.css";
 import "@mattmattmattmatt/base/primitives/icon/icon.css";
 import "@mattmattmattmatt/base/primitives/checkbox/checkbox.css";
 import "./SetupPrompt.css";
@@ -96,36 +91,36 @@ export function SetupPrompt({ onComplete }: Props) {
   return (
     <div className="setup-backdrop">
       <div className="setup-panel">
-        <Stack direction="vertical" gap="6" align="stretch">
-          <Stack direction="vertical" gap="3" align="center">
-            <Text size="xl" weight="semibold">Enable Network Monitor</Text>
-            <Text size="sm" color="secondary" style={{ textAlign: "center", paddingBottom: "var(--sp-2)" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 24, alignItems: "stretch" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12, alignItems: "center" }}>
+            <span style={{ fontSize: 22, fontWeight: 600, fontFamily: "var(--font-sans)", color: "var(--blip-text-primary)" }}>Enable Network Monitor</span>
+            <span style={{ fontSize: 13, fontFamily: "var(--font-sans)", color: "var(--blip-text-secondary)", textAlign: "center", paddingBottom: "var(--sp-2)" }}>
               Blip uses a system extension to monitor all network traffic.
               macOS will ask you to approve it in System Settings.
-            </Text>
-          </Stack>
+            </span>
+          </div>
 
-          <Stack direction="vertical" gap="3" align="stretch" style={{ paddingBottom: "var(--sp-2)" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12, alignItems: "stretch", paddingBottom: "var(--sp-2)" }}>
             {FEATURES.map((feat) => (
               <div key={feat.title} className="setup-feature">
                 <div className="setup-feature__icon">
                   <Icon icon={feat.icon} size="lg" color="primary" />
                 </div>
-                <Stack direction="vertical" gap={"0" as any}>
-                  <Text size="sm" weight="medium">{feat.title}</Text>
-                  <Text size="xs" color="tertiary">{feat.description}</Text>
-                </Stack>
+                <div style={{ display: "flex", flexDirection: "column" }}>
+                  <span style={{ fontSize: 13, fontWeight: 500, fontFamily: "var(--font-sans)", color: "var(--blip-text-primary)" }}>{feat.title}</span>
+                  <span style={{ fontSize: 11, fontFamily: "var(--font-sans)", color: "var(--blip-text-tertiary)" }}>{feat.description}</span>
+                </div>
               </div>
             ))}
-          </Stack>
+          </div>
 
           {error && (
-            <Text size="xs" color="secondary" style={{ textAlign: "center" }}>
+            <span style={{ fontSize: 11, fontFamily: "var(--font-sans)", color: "var(--blip-text-secondary)", textAlign: "center" }}>
               {error}
-            </Text>
+            </span>
           )}
 
-          <Stack direction="vertical" gap="3" align="stretch">
+          <div style={{ display: "flex", flexDirection: "column", gap: 12, alignItems: "stretch" }}>
             <Button
               variant="primary"
               size="md"
@@ -141,17 +136,17 @@ export function SetupPrompt({ onComplete }: Props) {
             >
               Maybe Later
             </Button>
-          </Stack>
+          </div>
 
-          <Stack direction="horizontal" gap="2" align="center" justify="center">
+          <div style={{ display: "flex", flexDirection: "row", gap: 8, alignItems: "center", justifyContent: "center" }}>
             <Checkbox
               checked={dontShowAgain}
               onChange={(e) => setDontShowAgain(e.target.checked)}
               size="sm"
             />
-            <Text size="xs" color="tertiary">Don't show this again</Text>
-          </Stack>
-        </Stack>
+            <span style={{ fontSize: 11, fontFamily: "var(--font-sans)", color: "var(--blip-text-tertiary)" }}>Don't show this again</span>
+          </div>
+        </div>
       </div>
     </div>
   );

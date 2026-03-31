@@ -1,0 +1,69 @@
+.blip-fw-row__main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 0;
+  cursor: pointer;
+}
+
+.blip-fw-row__left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.blip-fw-row__icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  overflow: hidden;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.blip-fw-row__img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.blip-fw-row__placeholder {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--blip-text-tertiary);
+}
+
+.blip-fw-row__info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.blip-fw-row__name {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--blip-text-primary);
+}
+
+.blip-fw-row__badges {
+  display: flex;
+  gap: 4px;
+}
+
+.blip-fw-row__detail {
+  padding: 8px 0 4px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.blip-fw-row--expanded .blip-fw-row__main {
+  border-bottom: 1px solid var(--blip-border-subtle);
+  padding-bottom: 8px;
+  margin-bottom: 4px;
+}

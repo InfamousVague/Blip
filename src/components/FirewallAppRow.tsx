@@ -1,19 +1,12 @@
 import { useState } from "react";
-import { Text } from "@mattmattmattmatt/base/primitives/text/Text";
-import { Button } from "@mattmattmattmatt/base/primitives/button/Button";
-import { Input } from "@mattmattmattmatt/base/primitives/input/Input";
-import { TriStateToggle } from "@mattmattmattmatt/base/primitives/tri-state-toggle/TriStateToggle";
-import { SegmentedControl } from "@mattmattmattmatt/base/primitives/segmented-control/SegmentedControl";
+import { Badge } from "../ui/components/Badge";
+import { Button } from "../ui/components/Button";
+import { DetailRow } from "../ui/components/DetailRow";
+import { TriStateToggle } from "../ui/components/TriStateToggle";
+import { SegmentedControl } from "../ui/components/SegmentedControl";
 import { Icon } from "@mattmattmattmatt/base/primitives/icon/Icon";
-import { Badge } from "@mattmattmattmatt/base/primitives/badge/Badge";
 import { plus } from "@mattmattmattmatt/base/primitives/icon/icons/plus";
 import { trash2 } from "@mattmattmattmatt/base/primitives/icon/icons/trash-2";
-import "@mattmattmattmatt/base/primitives/text/text.css";
-import "@mattmattmattmatt/base/primitives/badge/badge.css";
-import "@mattmattmattmatt/base/primitives/button/button.css";
-import "@mattmattmattmatt/base/primitives/input/input.css";
-import "@mattmattmattmatt/base/primitives/tri-state-toggle/tri-state-toggle.css";
-import "@mattmattmattmatt/base/primitives/segmented-control/segmented-control.css";
 import "@mattmattmattmatt/base/primitives/icon/icon.css";
 import type { AppWithRule } from "../hooks/useFirewallRules";
 import "./FirewallAppRow.css";
@@ -33,11 +26,6 @@ interface Props {
   bytesSent?: number;
   bytesReceived?: number;
   maxBytes?: number;
-}
-
-function formatCount(n: number): string {
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
-  return String(n);
 }
 
 function formatBytes(bytes: number): string {
@@ -127,88 +115,55 @@ export function FirewallAppRow({ app, displayName, expanded, onToggleExpand, onS
           )}
         </div>
         <div className="fw-row__info">
-          <Text size="sm" weight="medium" truncate={1}>
+          <span className="blip-text-row-title" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {displayName}
-          </Text>
-          <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center", marginTop: 2 }}>
-            {bytesSent > 0 && (
-              <Badge variant="subtle" size="sm" icon={ARROW_UP_SVG} style={{ color: "#ec4899", background: "rgba(236, 72, 153, 0.12)" }}>
-                {formatBytes(bytesSent)}
-              </Badge>
-            )}
-            {bytesReceived > 0 && (
-              <Badge variant="subtle" size="sm" icon={ARROW_DOWN_SVG} style={{ color: "#6366f1", background: "rgba(99, 102, 241, 0.12)" }}>
-                {formatBytes(bytesReceived)}
-              </Badge>
-            )}
+          </span>
+          <div style={{ display: "flex", gap: 4, alignItems: "center", marginTop: 2 }}>
+            <Badge variant="subtle" size="sm" icon={ARROW_UP_SVG} style={{ color: "#ec4899", background: "rgba(236, 72, 153, 0.12)" }}>
+              {bytesSent > 0 ? formatBytes(bytesSent) : "\u2014"}
+            </Badge>
+            <Badge variant="subtle" size="sm" icon={ARROW_DOWN_SVG} style={{ color: "#6366f1", background: "rgba(99, 102, 241, 0.12)" }}>
+              {bytesReceived > 0 ? formatBytes(bytesReceived) : "\u2014"}
+            </Badge>
           </div>
         </div>
-        <div className="fw-row__meta">
-          <Text size="xs" color="tertiary" font="mono">
-            {formatCount(app.total_connections)}
-          </Text>
-        </div>
         <div className="fw-row__toggle" onClick={(e) => e.stopPropagation()}>
-          <TriStateToggle value={app.action} onChange={onSetAction} size="md" />
+          <TriStateToggle value={app.action} onChange={onSetAction} size="sm" />
         </div>
       </div>
 
       {expanded && (
         <div className="fw-row__detail">
-          <div className="fw-row__detail-row">
-            <Text size="xs" color="tertiary">Bundle ID</Text>
-            <Text size="xs" font="mono" truncate={1}>{app.app_id}</Text>
-          </div>
-          <div className="fw-row__detail-row">
-            <Text size="xs" color="tertiary">Connections</Text>
-            <Text size="xs" font="mono">{app.total_connections}</Text>
-          </div>
-          <div className="fw-row__detail-row">
-            <Text size="xs" color="tertiary">Data usage</Text>
-            <Text size="xs" font="mono">{bytes > 0 ? formatBytes(bytes) : "—"}</Text>
-          </div>
+          <DetailRow label="Bundle ID" value={app.app_id} mono />
+          <DetailRow label="Connections" value={app.total_connections} mono />
+          <DetailRow label="Data usage" value={bytes > 0 ? formatBytes(bytes) : "\u2014"} mono />
           {bytes > 0 && (
             <>
-              <div className="fw-row__detail-row">
-                <Text size="xs" color="tertiary">Upload</Text>
-                <Text size="xs" font="mono" style={{ color: "#ec4899" }}>{formatBytes(bytesSent)}</Text>
-              </div>
-              <div className="fw-row__detail-row">
-                <Text size="xs" color="tertiary">Download</Text>
-                <Text size="xs" font="mono" style={{ color: "#6366f1" }}>{formatBytes(bytesReceived)}</Text>
-              </div>
+              <DetailRow label="Upload" value={formatBytes(bytesSent)} mono color="#ec4899" />
+              <DetailRow label="Download" value={formatBytes(bytesReceived)} mono color="#6366f1" />
             </>
           )}
-          <div className="fw-row__detail-row">
-            <Text size="xs" color="tertiary">First seen</Text>
-            <Text size="xs" font="mono">{new Date(app.first_seen_ms).toLocaleDateString()}</Text>
-          </div>
-          <div className="fw-row__detail-row">
-            <Text size="xs" color="tertiary">Last seen</Text>
-            <Text size="xs" font="mono">{timeAgo(app.last_seen_ms)} ago</Text>
-          </div>
+          <DetailRow label="First seen" value={new Date(app.first_seen_ms).toLocaleDateString()} mono />
+          <DetailRow label="Last seen" value={`${timeAgo(app.last_seen_ms)} ago`} mono />
           {app.is_apple_signed && (
-            <div className="fw-row__detail-row">
-              <Text size="xs" color="tertiary">Signed by</Text>
-              <Text size="xs" font="mono">Apple</Text>
-            </div>
+            <DetailRow label="Signed by" value="Apple" mono />
           )}
 
           {/* Scoped rules */}
           {scopedRules.length > 0 && (
             <div className="fw-row__rules-section">
-              <Text size="xs" weight="semibold" color="secondary" style={{ marginTop: "var(--sp-2)" }}>
+              <span className="blip-text-label" style={{ fontWeight: 600, color: "var(--blip-text-secondary)", marginTop: "var(--sp-2)" }}>
                 Rules ({scopedRules.length})
-              </Text>
+              </span>
               {scopedRules.map((rule) => (
                 <div key={rule.id} className="fw-row__rule-item">
                   <div className="fw-row__rule-info">
-                    <Text size="xs" font="mono" truncate={1}>
+                    <span className="blip-text-label" style={{ fontFamily: "var(--font-mono)", color: "var(--blip-text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {rule.domain || "*"}:{rule.port || "*"} {rule.protocol || "any"}
-                    </Text>
-                    <Text size="xs" color="tertiary">
+                    </span>
+                    <span className="blip-text-label">
                       {rule.action === "allow" ? "Allow" : "Block"} · {formatLifetime(rule.lifetime, rule.expires_at)}
-                    </Text>
+                    </span>
                   </div>
                   {onDeleteRuleById && (
                     <button
@@ -231,23 +186,21 @@ export function FirewallAppRow({ app, displayName, expanded, onToggleExpand, onS
               onClick={() => setShowAddRule(true)}
             >
               <Icon icon={plus} size="xs" />
-              <Text size="xs" color="secondary">Add rule</Text>
+              <span className="blip-text-label" style={{ color: "var(--blip-text-secondary)" }}>Add rule</span>
             </button>
           ) : (
             <div className="fw-row__add-rule-form">
-              <Input
+              <input
                 placeholder="Domain (optional)"
                 value={newDomain}
                 onChange={(e) => setNewDomain(e.target.value)}
-                size="sm"
-                variant="filled"
+                className="fw-row__input"
               />
-              <Input
+              <input
                 placeholder="Port (optional)"
                 value={newPort}
                 onChange={(e) => setNewPort(e.target.value.replace(/\D/g, ""))}
-                size="sm"
-                variant="filled"
+                className="fw-row__input"
               />
               <SegmentedControl
                 options={PROTOCOL_OPTIONS}

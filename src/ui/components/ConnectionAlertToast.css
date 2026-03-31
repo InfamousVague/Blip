@@ -1,0 +1,112 @@
+.blip-alert-toast {
+  width: 420px;
+}
+
+.blip-alert-toast__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.blip-alert-toast__header-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.blip-alert-toast__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--blip-warning);
+  box-shadow: 0 0 4px 1px rgba(245, 158, 11, 0.5);
+}
+
+.blip-alert-toast__title {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--blip-text-primary);
+}
+
+.blip-alert-toast__close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.4);
+  cursor: pointer;
+}
+.blip-alert-toast__close svg {
+  stroke: currentColor;
+}
+.blip-alert-toast__close:hover {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.blip-alert-toast__content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.blip-alert-toast__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.blip-alert-toast__app {
+  font-family: var(--font-sans);
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--blip-text-primary);
+}
+
+.blip-alert-toast__dest {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--blip-text-tertiary);
+}
+
+.blip-alert-toast__actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.blip-alert-toast__btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 7px 14px;
+  border: none;
+  border-radius: 8px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.blip-alert-toast__btn svg {
+  stroke: currentColor;
+}
+
+.blip-alert-toast__btn--allow {
+  background: var(--blip-success-bg);
+  color: var(--blip-success);
+}
+.blip-alert-toast__btn--allow:hover {
+  filter: brightness(1.2);
+}
+
+.blip-alert-toast__btn--block {
+  background: var(--blip-error-bg);
+  color: var(--blip-error);
+}
+.blip-alert-toast__btn--block:hover {
+  filter: brightness(1.2);
+}

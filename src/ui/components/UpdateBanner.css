@@ -1,0 +1,48 @@
+.blip-update-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px 8px 20px;
+  border-radius: 12px;
+  background: linear-gradient(90deg, rgba(139, 92, 246, 0.9), rgba(99, 102, 241, 0.9));
+}
+
+.blip-update-banner__text {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  color: #fff;
+}
+
+.blip-update-banner__actions {
+  display: flex;
+  gap: 6px;
+}
+
+.blip-update-banner__btn {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  padding: 5px 12px;
+  transition: all 0.15s ease;
+}
+
+.blip-update-banner__btn--update {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+  font-weight: 600;
+}
+.blip-update-banner__btn--update:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.blip-update-banner__btn--later {
+  background: transparent;
+  color: rgba(255, 255, 255, 0.7);
+  font-weight: 500;
+}
+.blip-update-banner__btn--later:hover {
+  color: #fff;
+}

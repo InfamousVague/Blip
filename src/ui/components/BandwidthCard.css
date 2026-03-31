@@ -1,0 +1,63 @@
+.blip-bw__columns {
+  display: flex;
+}
+
+.blip-bw__col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.blip-bw__divider {
+  width: 1px;
+  background: var(--blip-border-default);
+  align-self: stretch;
+  margin: 0 4px;
+}
+
+.blip-bw__header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.blip-bw__arrow {
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.blip-bw__label {
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 1px;
+  color: var(--blip-text-tertiary);
+}
+
+.blip-bw__rate {
+  font-family: var(--font-mono);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--blip-text-primary);
+}
+
+.blip-bw__row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.blip-bw__sublabel {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  color: var(--blip-text-tertiary);
+}
+
+.blip-bw__subvalue {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--blip-text-primary);
+}

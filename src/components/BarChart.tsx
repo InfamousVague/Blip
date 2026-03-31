@@ -1,20 +1,6 @@
-import { useState, useCallback } from "react";
-import { BarChart as RechartsBarChart, Bar, ResponsiveContainer, XAxis, YAxis, Tooltip, ReferenceLine } from "recharts";
-import type { TooltipProps } from "recharts";
-import { Stack } from "@mattmattmattmatt/base/primitives/stack/Stack";
-import { Text } from "@mattmattmattmatt/base/primitives/text/Text";
-import "@mattmattmattmatt/base/primitives/stack/stack.css";
-import "@mattmattmattmatt/base/primitives/text/text.css";
+import { BarChart as RechartsBarChart, Bar, ResponsiveContainer, XAxis, YAxis, ReferenceLine } from "recharts";
 import type { BandwidthSample } from "../hooks/useBandwidth";
 import "./BarChart.css";
-
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return "0 B";
-  const k = 1024;
-  const sizes = ["B", "KB", "MB", "GB"];
-  const i = Math.floor(Math.log(Math.max(bytes, 1)) / Math.log(k));
-  return `${(bytes / k ** i).toFixed(1)} ${sizes[Math.min(i, sizes.length - 1)]}`;
-}
 
 interface Props {
   samples: BandwidthSample[];
@@ -22,24 +8,7 @@ interface Props {
   totalOut: number;
 }
 
-export function BandwidthBarChart({ samples, totalIn, totalOut }: Props) {
-  const [hovered, setHovered] = useState<{ bytesIn: number; bytesOut: number } | null>(null);
-
-  const displayIn = hovered ? hovered.bytesIn : (samples.length > 0 ? samples[samples.length - 1].bytesIn : 0);
-  const displayOut = hovered ? hovered.bytesOut : (samples.length > 0 ? samples[samples.length - 1].bytesOut : 0);
-
-  const CustomTooltip = useCallback(({ active, payload }: TooltipProps<number, string> & { payload?: any[] }) => {
-    if (active && payload && payload.length >= 2) {
-      const bytesIn = (payload[0]?.value as number) ?? 0;
-      const bytesOut = (payload[1]?.value as number) ?? 0;
-      queueMicrotask(() => setHovered({ bytesIn, bytesOut }));
-    }
-    return null;
-  }, []);
-
-  const handleMouseLeave = useCallback(() => {
-    setHovered(null);
-  }, []);
+export function BandwidthBarChart({ samples }: Props) {
 
   return (
     <div className="bar-chart">

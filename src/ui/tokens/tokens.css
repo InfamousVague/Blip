@@ -1,0 +1,62 @@
+/**
+ * Blip Liquid Glass Design Tokens
+ * Extends the base kit tokens with glass-specific values from Figma.
+ */
+
+:root {
+  /* === Surfaces (purple-tinted darks) === */
+  --blip-bg-primary: #0c0a12;
+  --blip-bg-secondary: #13111a;
+  --blip-bg-elevated: #1a1725;
+
+  /* === Text === */
+  --blip-text-primary: rgba(255, 255, 255, 0.95);
+  --blip-text-secondary: rgba(255, 255, 255, 0.65);
+  --blip-text-tertiary: rgba(255, 255, 255, 0.4);
+
+  /* === Borders === */
+  --blip-border-default: rgba(255, 255, 255, 0.08);
+  --blip-border-subtle: rgba(255, 255, 255, 0.04);
+
+  /* === Purple Accent === */
+  --blip-purple-solid: #8b5cf6;
+  --blip-purple-muted: rgba(139, 92, 246, 0.25);
+  --blip-purple-subtle: rgba(139, 92, 246, 0.12);
+  --blip-purple-text: #a78bfa;
+
+  /* === Functional (data colors) === */
+  --blip-download: #6366f1;
+  --blip-upload: #ec4899;
+  --blip-success: #22c55e;
+  --blip-error: #ef4444;
+  --blip-warning: #f59e0b;
+  --blip-info: #06b6d4;
+
+  /* === Functional Backgrounds (lower opacity) === */
+  --blip-download-bg: rgba(99, 102, 241, 0.32);
+  --blip-upload-bg: rgba(236, 72, 153, 0.32);
+  --blip-success-bg: rgba(34, 197, 94, 0.15);
+  --blip-error-bg: rgba(239, 68, 68, 0.15);
+  --blip-warning-bg: rgba(245, 158, 11, 0.15);
+  --blip-info-bg: rgba(6, 182, 212, 0.15);
+
+  /* === Clear Liquid Glass === */
+  --glass-clear-fill: rgba(0, 0, 0, 0.004);
+  --glass-clear-border: rgba(227, 227, 227, 0.1);
+  --glass-clear-radius: 14px;
+  --glass-clear-shadow: inset 6px 6px 3px -6px rgba(179, 179, 179, 0.5),
+                         inset -6px -6px 3px -6px rgba(179, 179, 179, 0.5);
+
+  /* === Frosted Glass (sidebar panels) === */
+  --glass-frosted-fill: rgba(255, 255, 255, 0.12);
+  --glass-frosted-border: rgba(255, 255, 255, 0.12);
+  --glass-frosted-radius: 20px;
+  --glass-frosted-blur: 20px;
+  --glass-frosted-saturate: 1.8;
+
+  /* === Frosted Card (inner cards) === */
+  --glass-card-fill: rgba(255, 255, 255, 0.1);
+  --glass-card-border: rgba(255, 255, 255, 0.08);
+  --glass-card-radius: 14px;
+  --glass-card-blur: 12px;
+}

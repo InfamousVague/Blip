@@ -1,0 +1,44 @@
+.blip-chart-card__area {
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid var(--blip-border-default);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.blip-chart-card__placeholder {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--blip-text-tertiary);
+}
+
+.blip-chart-card__modes {
+  display: flex;
+  gap: 0;
+  justify-content: center;
+}
+
+.blip-chart-card__mode {
+  padding: 4px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--blip-text-tertiary);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.blip-chart-card__mode:hover:not(.blip-chart-card__mode--active) {
+  color: var(--blip-text-secondary);
+}
+
+.blip-chart-card__mode--active {
+  background: var(--blip-purple-subtle);
+  color: var(--blip-text-primary);
+  font-weight: 600;
+}

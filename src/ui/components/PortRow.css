@@ -1,0 +1,84 @@
+.blip-port-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+}
+
+.blip-port-row__left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.blip-port-row__icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: rgba(6, 182, 212, 0.1);
+  color: var(--blip-info);
+}
+.blip-port-row__icon svg {
+  stroke: currentColor;
+}
+
+.blip-port-row__info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.blip-port-row__name-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.blip-port-row__process {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--blip-text-primary);
+}
+
+.blip-port-row__pid {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--blip-text-tertiary);
+}
+
+.blip-port-row__chips {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.blip-port-row__kill {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  border: none;
+  border-radius: 6px;
+  background: var(--blip-error-bg);
+  color: var(--blip-error);
+  opacity: 0.7;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+.blip-port-row__kill svg {
+  stroke: currentColor;
+}
+.blip-port-row__kill:hover {
+  opacity: 1;
+}
+.blip-port-row__kill--confirm {
+  opacity: 1;
+  background: var(--blip-error);
+  color: #fff;
+}

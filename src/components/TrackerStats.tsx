@@ -1,16 +1,9 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Stack } from "@mattmattmattmatt/base/primitives/stack/Stack";
-import { Text } from "@mattmattmattmatt/base/primitives/text/Text";
-import { NumberRoll } from "@mattmattmattmatt/base/primitives/number-roll/NumberRoll";
-import { Pagination } from "@mattmattmattmatt/base/primitives/pagination/Pagination";
-import "@mattmattmattmatt/base/primitives/number-roll/number-roll.css";
-import "@mattmattmattmatt/base/primitives/stack/stack.css";
-import "@mattmattmattmatt/base/primitives/text/text.css";
-import "@mattmattmattmatt/base/primitives/pagination/pagination.css";
-import { Icon } from "@mattmattmattmatt/base/primitives/icon/Icon";
-import { globe } from "@mattmattmattmatt/base/primitives/icon/icons/globe";
-import "@mattmattmattmatt/base/primitives/icon/icon.css";
+import { StatCard } from "../ui/components/StatCard";
+import { TrackerRow } from "../ui/components/TrackerRow";
+import { Pagination } from "../ui/components/Pagination";
+import { FrostedCard } from "../ui/glass";
 import { getBrandIcon } from "../utils/brand-icons";
 import "./TrackerStats.css";
 
@@ -73,9 +66,9 @@ export function TrackerStats({ visible }: Props) {
 
   if (!stats) {
     return (
-      <Stack direction="vertical" gap="4" align="stretch">
-        <Text size="sm" color="tertiary">Loading...</Text>
-      </Stack>
+      <div style={{ padding: 16, color: "var(--blip-text-tertiary)", fontSize: 13 }}>
+        Loading...
+      </div>
     );
   }
 
@@ -83,56 +76,34 @@ export function TrackerStats({ visible }: Props) {
 
   return (
     <div className="tracker-stats">
-      <Stack direction="horizontal" gap="4" align="center" style={{ flexShrink: 0 }}>
-        <Stack direction="vertical" gap="1">
-          <Text size="xs" color="tertiary" font="mono">CONNECTIONS</Text>
-          <NumberRoll value={stats.total_tracker_hits} minDigits={3} fontSize="var(--text-lg-size)" commas />
-        </Stack>
-        <Stack direction="vertical" gap="1">
-          <Text size="xs" color="tertiary" font="mono">DOMAINS</Text>
-          <NumberRoll value={stats.top_domains.length} minDigits={3} fontSize="var(--text-lg-size)" commas />
-        </Stack>
-      </Stack>
+      <StatCard
+        stats={[
+          { label: "CONNECTIONS", value: stats.total_tracker_hits, minDigits: 5 },
+          { label: "DOMAINS", value: stats.top_domains.length, minDigits: 3 },
+        ]}
+      />
 
       {isEmpty ? (
         <div className="tracker-stats__empty">
           <span className="tracker-stats__shield-icon">&#128737;</span>
-          <Text size="sm" color="tertiary">No trackers detected</Text>
+          <span style={{ color: "var(--blip-text-tertiary)", fontSize: 13 }}>No trackers detected</span>
         </div>
       ) : (
-        <div className="tracker-stats__list">
+        <FrostedCard className="blip-scroll-list">
           {visibleDomains.map((domain) => {
             const brand = getBrandIcon(domain.domain);
             return (
-            <div key={domain.domain} className="tracker-stats__row">
-              {brand ? (
-                <img src={brand.url} alt="" className="tracker-stats__icon" />
-              ) : (
-                <span className="tracker-stats__icon tracker-stats__icon--default"><Icon icon={globe} size="xs" /></span>
-              )}
-              <Stack direction="vertical" gap="1" style={{ flex: 1, overflow: "hidden" }}>
-                <Text size="sm" weight="medium" truncate={1} font="mono">
-                  {domain.domain}
-                </Text>
-                {domain.category && (
-                  <Text size="xs" color="tertiary">{domain.category}</Text>
-                )}
-              </Stack>
-              <Stack direction="horizontal" gap="3" align="center" style={{ flexShrink: 0 }}>
-                <Stack direction="vertical" gap={"0" as any} align="end">
-                  <Text size="xs" font="mono">
-                    <NumberRoll value={domain.total_hits} minDigits={1} fontSize="var(--text-xs-size)" duration={300} commas />
-                    <span style={{ opacity: 0.5, marginLeft: 2 }}>hits</span>
-                  </Text>
-                </Stack>
-                <Text size="xs" color="tertiary" style={{ minWidth: 48, textAlign: "right" }}>
-                  {formatLastSeen(domain.last_seen_ms)}
-                </Text>
-              </Stack>
-            </div>
+              <TrackerRow
+                key={domain.domain}
+                domain={domain.domain}
+                category={domain.category || undefined}
+                totalHits={domain.total_hits}
+                lastSeen={formatLastSeen(domain.last_seen_ms)}
+                iconUrl={brand?.url}
+              />
             );
           })}
-        </div>
+        </FrostedCard>
       )}
       <Pagination
         page={safePage}

@@ -1,35 +1,24 @@
 import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Stack } from "@mattmattmattmatt/base/primitives/stack/Stack";
-import { Text } from "@mattmattmattmatt/base/primitives/text/Text";
-import { Toggle } from "@mattmattmattmatt/base/primitives/toggle/Toggle";
-import { Separator } from "@mattmattmattmatt/base/primitives/separator/Separator";
+import { Separator } from "../ui/components/Separator";
+import { Button } from "../ui/components/Button";
+import { Toggle } from "../ui/components/Toggle";
+import { SegmentedControl } from "../ui/components/SegmentedControl";
 import { Icon } from "@mattmattmattmatt/base/primitives/icon/Icon";
-import { Button } from "@mattmattmattmatt/base/primitives/button/Button";
 import { settings as settingsIcon } from "@mattmattmattmatt/base/primitives/icon/icons/settings";
 import { shield } from "@mattmattmattmatt/base/primitives/icon/icons/shield";
-import { palette } from "@mattmattmattmatt/base/primitives/icon/icons/palette";
 import { info } from "@mattmattmattmatt/base/primitives/icon/icons/info";
 import { x } from "@mattmattmattmatt/base/primitives/icon/icons/x";
 import { refreshCw } from "@mattmattmattmatt/base/primitives/icon/icons/refresh-cw";
-import { SegmentedControl } from "@mattmattmattmatt/base/primitives/segmented-control/SegmentedControl";
-import "@mattmattmattmatt/base/primitives/button/button.css";
-import "@mattmattmattmatt/base/primitives/stack/stack.css";
-import "@mattmattmattmatt/base/primitives/text/text.css";
-import "@mattmattmattmatt/base/primitives/toggle/toggle.css";
-import "@mattmattmattmatt/base/primitives/separator/separator.css";
 import "@mattmattmattmatt/base/primitives/icon/icon.css";
-import "@mattmattmattmatt/base/primitives/segmented-control/segmented-control.css";
 import { BlocklistManager } from "./BlocklistManager";
-import { themes } from "../map-themes";
 import "./Settings.css";
 
-type SettingsTab = "general" | "blocklists" | "appearance" | "about";
+type SettingsTab = "general" | "blocklists" | "about";
 
 const NAV_ITEMS: { value: SettingsTab; label: string; icon: string }[] = [
   { value: "general", label: "General", icon: settingsIcon },
   { value: "blocklists", label: "Blocklists", icon: shield },
-  { value: "appearance", label: "Appearance", icon: palette },
   { value: "about", label: "About", icon: info },
 ];
 
@@ -42,8 +31,6 @@ interface DiagnosticItem {
 interface Props {
   open: boolean;
   onClose: () => void;
-  themeIndex: number;
-  onThemeChange: (index: number) => void;
   firewallMode: string;
   onFirewallModeChange: (mode: string) => void;
 }
@@ -60,7 +47,7 @@ const FIREWALL_MODE_DESCRIPTIONS: Record<string, string> = {
   silent_deny: "Block all connections from unknown apps by default.",
 };
 
-export function Settings({ open, onClose, themeIndex, onThemeChange, firewallMode, onFirewallModeChange }: Props) {
+export function Settings({ open, onClose, firewallMode, onFirewallModeChange }: Props) {
   const [activeTab, setActiveTab] = useState<SettingsTab>("general");
   const [autoCapture, setAutoCapture] = useState(true);
   const [showInactive, setShowInactive] = useState(true);
@@ -70,6 +57,35 @@ export function Settings({ open, onClose, themeIndex, onThemeChange, firewallMod
   const [neError, setNeError] = useState<string | null>(null);
   const [diagnostics, setDiagnostics] = useState<DiagnosticItem[]>([]);
   const [diagLoading, setDiagLoading] = useState(false);
+
+  // Load persisted preferences on mount
+  useEffect(() => {
+    if (!open) return;
+    (async () => {
+      try {
+        const ac = await invoke<string | null>("get_preference", { key: "auto_capture" });
+        if (ac !== null) setAutoCapture(ac === "true");
+        const si = await invoke<string | null>("get_preference", { key: "show_inactive" });
+        if (si !== null) setShowInactive(si === "true");
+        const dl = await invoke<string | null>("get_preference", { key: "debug_logging" });
+        if (dl !== null) setDebugLogging(dl === "true");
+      } catch { /* ignore load errors */ }
+    })();
+  }, [open]);
+
+  // Persist toggle changes
+  const handleAutoCapture = (v: boolean) => {
+    setAutoCapture(v);
+    invoke("set_preference", { key: "auto_capture", value: String(v) }).catch(() => {});
+  };
+  const handleShowInactive = (v: boolean) => {
+    setShowInactive(v);
+    invoke("set_preference", { key: "show_inactive", value: String(v) }).catch(() => {});
+  };
+  const handleDebugLogging = (v: boolean) => {
+    setDebugLogging(v);
+    invoke("set_preference", { key: "debug_logging", value: String(v) }).catch(() => {});
+  };
 
   const refreshDiagnostics = useCallback(async () => {
     setDiagLoading(true);
@@ -105,7 +121,7 @@ export function Settings({ open, onClose, themeIndex, onThemeChange, firewallMod
     <div className="settings-backdrop" onClick={onClose}>
       <div className="settings-panel" onClick={(e) => e.stopPropagation()}>
         <div className="settings-header">
-          <Text size="lg" weight="semibold">Settings</Text>
+          <span className="blip-text-heading">Settings</span>
           <Button variant="ghost" size="sm" icon={x} iconOnly aria-label="Close" onClick={onClose} />
         </div>
         <div className="settings-layout">
@@ -124,53 +140,53 @@ export function Settings({ open, onClose, themeIndex, onThemeChange, firewallMod
 
           <div className="settings-content">
             {activeTab === "general" && (
-              <Stack direction="vertical" gap="4" align="stretch">
-                <Text size="lg" weight="semibold">General</Text>
+              <div style={{ display: "flex", flexDirection: "column", gap: 16, alignItems: "stretch" }}>
+                <span className="blip-text-heading">General</span>
                 <Separator />
 
                 <div className="settings-row">
                   <div className="settings-row__label">
-                    <Text size="sm" weight="medium">Auto-start capture</Text>
-                    <Text size="xs" color="tertiary">Begin monitoring network traffic when Blip launches</Text>
+                    <span className="blip-text-row-title">Auto-start capture</span>
+                    <span className="blip-text-row-desc">Begin monitoring network traffic when Blip launches</span>
                   </div>
-                  <Toggle checked={autoCapture} onChange={(e) => setAutoCapture(e.target.checked)} />
+                  <Toggle checked={autoCapture} onChange={handleAutoCapture} />
                 </div>
 
                 <div className="settings-row">
                   <div className="settings-row__label">
-                    <Text size="sm" weight="medium">Show inactive connections</Text>
-                    <Text size="xs" color="tertiary">Display fading arcs for recently closed connections</Text>
+                    <span className="blip-text-row-title">Show inactive connections</span>
+                    <span className="blip-text-row-desc">Display fading arcs for recently closed connections</span>
                   </div>
-                  <Toggle checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} />
+                  <Toggle checked={showInactive} onChange={handleShowInactive} />
                 </div>
 
                 <div className="settings-row">
                   <div className="settings-row__label">
-                    <Text size="sm" weight="medium">
+                    <span className="blip-text-row-title">
                       Network Extension
-                      <span style={{
-                        display: "inline-block",
-                        width: 8,
-                        height: 8,
-                        borderRadius: "50%",
-                        background: neStatus === "active" ? "var(--color-success)"
-                          : neStatus === "pending_approval" ? "var(--color-warning)"
-                          : "var(--color-text-tertiary)",
-                        marginLeft: "var(--sp-2)",
-                        verticalAlign: "middle",
-                      }} />
-                    </Text>
-                    <Text size="xs" color="tertiary">
+                      <span
+                        className="diagnostics-dot"
+                        style={{
+                          display: "inline-block",
+                          background: neStatus === "active" ? "var(--blip-success)"
+                            : neStatus === "pending_approval" ? "var(--blip-warning)"
+                            : "var(--blip-text-tertiary)",
+                          marginLeft: "var(--sp-2)",
+                          verticalAlign: "middle",
+                        }}
+                      />
+                    </span>
+                    <span className="blip-text-row-desc">
                       {neStatus === "active"
-                        ? "Active — capturing all connections in real-time"
+                        ? "Active \u2014 capturing all connections in real-time"
                         : neStatus === "pending_approval"
-                        ? "Pending — approve in System Settings → Privacy & Security"
+                        ? "Pending \u2014 approve in System Settings \u2192 Privacy & Security"
                         : "Enable to capture all connections system-wide without elevated access"}
-                    </Text>
+                    </span>
                     {neError && (
-                      <Text size="xs" style={{ color: "var(--color-danger)", marginTop: "var(--sp-1)" }}>
+                      <span className="blip-text-row-desc" style={{ color: "var(--blip-error)", marginTop: "var(--sp-1)" }}>
                         {neError}
-                      </Text>
+                      </span>
                     )}
                   </div>
                   <div style={{ display: "flex", gap: "var(--sp-2)" }}>
@@ -209,20 +225,20 @@ export function Settings({ open, onClose, themeIndex, onThemeChange, firewallMod
 
                 <div className="settings-row">
                   <div className="settings-row__label">
-                    <Text size="sm" weight="medium">Debug logging</Text>
-                    <Text size="xs" color="tertiary">Write detailed logs to /tmp/blip-debug.log</Text>
+                    <span className="blip-text-row-title">Debug logging</span>
+                    <span className="blip-text-row-desc">Write detailed logs to /tmp/blip-debug.log</span>
                   </div>
-                  <Toggle checked={debugLogging} onChange={(e) => setDebugLogging(e.target.checked)} />
+                  <Toggle checked={debugLogging} onChange={handleDebugLogging} />
                 </div>
 
                 <Separator />
 
                 <div className="settings-row" style={{ flexDirection: "column", alignItems: "stretch", gap: "var(--sp-2)" }}>
                   <div className="settings-row__label">
-                    <Text size="sm" weight="medium">Firewall Mode</Text>
-                    <Text size="xs" color="tertiary">
+                    <span className="blip-text-row-title">Firewall Mode</span>
+                    <span className="blip-text-row-desc">
                       {FIREWALL_MODE_DESCRIPTIONS[firewallMode] || FIREWALL_MODE_DESCRIPTIONS.silent_allow}
-                    </Text>
+                    </span>
                   </div>
                   <SegmentedControl
                     options={FIREWALL_MODES}
@@ -235,8 +251,8 @@ export function Settings({ open, onClose, themeIndex, onThemeChange, firewallMod
 
                 <Separator />
 
-                <Stack direction="horizontal" align="center" justify="between">
-                  <Text size="sm" weight="semibold">System Status</Text>
+                <div style={{ display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                  <span className="blip-text-row-title" style={{ fontWeight: 600 }}>System Status</span>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -246,7 +262,7 @@ export function Settings({ open, onClose, themeIndex, onThemeChange, firewallMod
                     onClick={refreshDiagnostics}
                     disabled={diagLoading}
                   />
-                </Stack>
+                </div>
 
                 <div className="diagnostics-grid">
                   {diagnostics.map((item) => (
@@ -256,80 +272,38 @@ export function Settings({ open, onClose, themeIndex, onThemeChange, firewallMod
                           className="diagnostics-dot"
                           style={{
                             background:
-                              item.status === "ok" ? "var(--color-success)"
-                              : item.status === "warning" ? "var(--color-warning)"
-                              : "var(--color-error)",
+                              item.status === "ok" ? "var(--blip-success)"
+                              : item.status === "warning" ? "var(--blip-warning)"
+                              : "var(--blip-error)",
                           }}
                         />
-                        <Text size="xs" weight="medium">{item.name}</Text>
+                        <span className="blip-text-label" style={{ fontWeight: 500, color: "var(--blip-text-primary)" }}>{item.name}</span>
                       </div>
-                      <Text size="xs" color="tertiary">{item.detail}</Text>
+                      <span className="blip-text-row-desc">{item.detail}</span>
                     </div>
                   ))}
                   {diagnostics.length === 0 && !diagLoading && (
-                    <Text size="xs" color="tertiary">No diagnostics available</Text>
+                    <span className="blip-text-row-desc">No diagnostics available</span>
                   )}
                   {diagLoading && (
-                    <Text size="xs" color="tertiary">Checking systems...</Text>
+                    <span className="blip-text-row-desc">Checking systems...</span>
                   )}
                 </div>
-              </Stack>
+              </div>
             )}
 
             {activeTab === "blocklists" && <BlocklistManager />}
 
-            {activeTab === "appearance" && (
-              <Stack direction="vertical" gap="4" align="stretch">
-                <Text size="lg" weight="semibold">Appearance</Text>
-                <Separator />
-                <Text size="sm" weight="medium">Map Theme</Text>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "var(--sp-2)" }}>
-                  {themes.map((t, i) => (
-                    <button
-                      key={t.name}
-                      onClick={() => onThemeChange(i)}
-                      style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        alignItems: "center",
-                        gap: "var(--sp-1)",
-                        padding: "var(--sp-2)",
-                        background: i === themeIndex ? "rgba(255,255,255,0.08)" : "transparent",
-                        border: i === themeIndex ? "1px solid rgba(255,255,255,0.2)" : "1px solid transparent",
-                        borderRadius: "var(--radius-md)",
-                        cursor: "pointer",
-                        transition: "all 0.15s ease",
-                      }}
-                    >
-                      <div style={{
-                        width: "100%",
-                        height: 32,
-                        borderRadius: "var(--radius-sm)",
-                        background: t.bg,
-                        border: "1px solid " + t.boundary,
-                        position: "relative",
-                        overflow: "hidden",
-                      }}>
-                        <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: "40%", background: t.water }} />
-                        <div style={{ position: "absolute", top: 4, left: 4, width: 4, height: 4, borderRadius: "50%", background: t.labelCountry }} />
-                      </div>
-                      <Text size="xs" color={i === themeIndex ? "primary" : "tertiary"}>{t.name}</Text>
-                    </button>
-                  ))}
-                </div>
-              </Stack>
-            )}
-
             {activeTab === "about" && (
-              <Stack direction="vertical" gap="4" align="stretch">
-                <Text size="lg" weight="semibold">About Blip</Text>
+              <div style={{ display: "flex", flexDirection: "column", gap: 16, alignItems: "stretch" }}>
+                <span className="blip-text-heading">About Blip</span>
                 <Separator />
-                <Stack direction="vertical" gap="2">
-                  <Text size="sm" color="secondary">Version 0.1.0</Text>
-                  <Text size="sm" color="secondary">A real-time network traffic visualizer.</Text>
-                  <Text size="xs" color="tertiary">Built with Tauri, React, MapLibre GL, and deck.gl</Text>
-                </Stack>
-              </Stack>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  <span className="blip-text-empty" style={{ color: "var(--blip-text-secondary)" }}>Version 0.1.0</span>
+                  <span className="blip-text-empty" style={{ color: "var(--blip-text-secondary)" }}>A real-time network traffic visualizer.</span>
+                  <span className="blip-text-row-desc">Built with Tauri, React, MapLibre GL, and deck.gl</span>
+                </div>
+              </div>
             )}
           </div>
         </div>

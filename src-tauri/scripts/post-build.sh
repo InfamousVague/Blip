@@ -139,7 +139,9 @@ codesign --verify --deep --strict "$APP_BUNDLE" && echo "Signature valid" || ech
 
 # Rebuild DMG with properly signed app
 DMG_DIR="$TAURI_DIR/target/release/bundle/dmg"
-DMG_PATH="$DMG_DIR/Blip_0.1.0_aarch64.dmg"
+# Read version from tauri.conf.json to match the Makefile's DMG name
+VERSION=$(node -e "console.log(require('$TAURI_DIR/tauri.conf.json').version)" 2>/dev/null || echo "0.0.0")
+DMG_PATH="$DMG_DIR/Blip_${VERSION}_aarch64.dmg"
 if [ -d "$DMG_DIR" ]; then
     echo ""
     echo "=== Rebuilding DMG with signed app ==="
