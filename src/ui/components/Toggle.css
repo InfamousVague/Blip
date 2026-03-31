@@ -1,0 +1,72 @@
+.blip-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.blip-toggle__input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.blip-toggle__track {
+  position: relative;
+  border-radius: 12px;
+  transition: background 0.2s ease;
+}
+
+/* Sizes */
+.blip-toggle--sm .blip-toggle__track { width: 36px; height: 20px; }
+.blip-toggle--md .blip-toggle__track { width: 44px; height: 24px; }
+.blip-toggle--lg .blip-toggle__track { width: 52px; height: 28px; }
+
+/* Off state */
+.blip-toggle__track {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/* On state */
+.blip-toggle--on .blip-toggle__track {
+  background: var(--blip-purple-solid);
+}
+
+/* Knob */
+.blip-toggle__knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  transition: transform 0.2s ease;
+}
+
+.blip-toggle--sm .blip-toggle__knob { width: 16px; height: 16px; }
+.blip-toggle--md .blip-toggle__knob { width: 20px; height: 20px; }
+.blip-toggle--lg .blip-toggle__knob { width: 24px; height: 24px; }
+
+/* Off → knob left, On → knob right */
+.blip-toggle--on.blip-toggle--sm .blip-toggle__knob { transform: translateX(16px); }
+.blip-toggle--on.blip-toggle--md .blip-toggle__knob { transform: translateX(20px); }
+.blip-toggle--on.blip-toggle--lg .blip-toggle__knob { transform: translateX(24px); }
+
+/* Not checked → dimmer knob */
+.blip-toggle:not(.blip-toggle--on) .blip-toggle__knob {
+  background: rgba(255, 255, 255, 0.7);
+}
+
+/* Label */
+.blip-toggle__label {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--blip-text-primary);
+}
+
+/* Disabled */
+.blip-toggle--disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}

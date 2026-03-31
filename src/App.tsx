@@ -1,19 +1,14 @@
-import { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Map, { Marker } from "react-map-gl/maplibre";
 import type { MapRef } from "react-map-gl/maplibre";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { Button } from "@mattmattmattmatt/base/primitives/button/Button";
-import "@mattmattmattmatt/base/primitives/button/button.css";
+import { Button } from "./ui/components/Button";
 import "@mattmattmattmatt/base/primitives/icon/icon.css";
 import { plus } from "@mattmattmattmatt/base/primitives/icon/icons/plus";
 import { minus } from "@mattmattmattmatt/base/primitives/icon/icons/minus";
 import { locateFixed } from "@mattmattmattmatt/base/primitives/icon/icons/locate-fixed";
-import { play } from "@mattmattmattmatt/base/primitives/icon/icons/play";
-import { pause } from "@mattmattmattmatt/base/primitives/icon/icons/pause";
 import { settings } from "@mattmattmattmatt/base/primitives/icon/icons/settings";
-import { NumberRoll } from "@mattmattmattmatt/base/primitives/number-roll/NumberRoll";
-import "@mattmattmattmatt/base/primitives/number-roll/number-roll.css";
-import { themes, getThemeStyle } from "./map-themes";
+import { buildAtlasStyle } from "./map-themes";
 import laptopIcon from "./assets/icons/laptop.png";
 import { useNetworkCapture } from "./hooks/useNetworkEvents";
 import { useArcAnimation } from "./hooks/useArcAnimation";
@@ -27,13 +22,12 @@ import { Sidebar } from "./components/Sidebar";
 import { GlobalStats } from "./components/GlobalStats";
 import { EndpointDetail } from "./components/EndpointDetail";
 import { useBandwidth } from "./hooks/useBandwidth";
-import { Settings } from "./components/Settings";
+import { Settings } from "./components/settings";
 import { SetupPrompt } from "./components/SetupPrompt";
 import { TrackerStats } from "./components/TrackerStats";
 import { DnsLog } from "./components/DnsLog";
 import { FirewallContent } from "./components/FirewallSidebar";
 import { PortsSidebar } from "./components/PortsSidebar";
-import { ExpandedChartModal } from "./components/ExpandedChartModal";
 import { useDnsCapture } from "./hooks/useDnsCapture";
 import { useServiceBandwidth } from "./hooks/useServiceBandwidth";
 import { useFirewallRules } from "./hooks/useFirewallRules";
@@ -41,13 +35,10 @@ import { useFirewallAlerts } from "./hooks/useFirewallAlerts";
 import { useListeningPorts } from "./hooks/useListeningPorts";
 import { FirewallAlertOverlay } from "./components/FirewallAlertToast";
 import { useAppUpdate } from "./hooks/useAppUpdate";
-import { SegmentedControl } from "@mattmattmattmatt/base/primitives/segmented-control/SegmentedControl";
-import "@mattmattmattmatt/base/primitives/segmented-control/segmented-control.css";
+import { Topbar } from "./ui/components/Topbar";
+import { SegmentedControl } from "./ui/components/SegmentedControl";
+import { UpdateBanner } from "./ui/components/UpdateBanner";
 import { flame } from "@mattmattmattmatt/base/primitives/icon/icons/flame";
-import { activity } from "@mattmattmattmatt/base/primitives/icon/icons/activity";
-import { shieldCheck } from "@mattmattmattmatt/base/primitives/icon/icons/shield-check";
-import { globe } from "@mattmattmattmatt/base/primitives/icon/icons/globe";
-import { Icon } from "@mattmattmattmatt/base/primitives/icon/Icon";
 import { sparkles } from "@mattmattmattmatt/base/primitives/icon/icons/sparkles";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -105,11 +96,7 @@ function App() {
   const [historicalEndpoints, setHistoricalEndpoints] = useState<HistoricalEndpoint[]>([]);
   const [selfInfo, setSelfInfo] = useState<SelfIpInfo | null>(null);
   const [elevationBanner, setElevationBanner] = useState(false);
-  const [expandedChart, setExpandedChart] = useState<string | null>(null);
-  const [themeIndex, setThemeIndex] = useState(() => {
-    const saved = localStorage.getItem("blip-map-theme");
-    return saved ? parseInt(saved, 10) : themes.findIndex((t) => t.name === "Soft Light");
-  });
+  const mapStyle = useMemo(() => buildAtlasStyle(), []);
   const setupTriggered = useRef(false);
 
   const { connections, totalEver, capturing, startCapture, stopCapture } = useNetworkCapture(sidebarTab);
@@ -198,10 +185,6 @@ function App() {
         mapRef.current?.flyTo({ center: [loc.longitude, loc.latitude], zoom: 4.5, pitch: 45, bearing: -8, duration: 1500 });
       })
       .catch((err) => console.error("Could not get location:", err));
-  };
-
-  const toggleCapture = async () => {
-    if (capturing) { await stopCapture(); } else { await startCapture(); }
   };
 
   const handleEndpointSelect = useCallback((ep: EndpointData) => {
@@ -308,56 +291,26 @@ function App() {
 
   return (
     <div className="app" style={{ "--sidebar-width": `${sidebarWidth}px` } as React.CSSProperties}>
-      {/* Dark glassmorphism topbar */}
-      <div className="topbar" onMouseDown={() => getCurrentWindow().startDragging()}>
-        <div className="topbar__left">
-          <span className="topbar__isp">{selfInfo?.isp ?? "Unknown ISP"}</span>
-          {selfInfo?.network_type && (
-            <span className="topbar__badge">{selfInfo.network_type}</span>
-          )}
-          <span className="topbar__sep" />
-          <span className="topbar__meta">{location?.ip ?? "—"}</span>
-          <span className="topbar__sep" />
-          <span className="topbar__meta">
-            {location ? `${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}` : "Locating..."}
-          </span>
-        </div>
-        <div className="topbar__right">
-          <SegmentedControl
-            options={[
-              { value: "network", label: "Network" },
-              { value: "firewall", label: "Firewall" },
-              { value: "ports", label: "Ports" },
-            ]}
-            value={mode}
-            onChange={(v) => setMode(v as "network" | "firewall" | "ports")}
-            size="md"
-          />
-        </div>
-      </div>
+      {/* Liquid glass topbar */}
+      <Topbar
+        isp={selfInfo?.isp}
+        networkType={selfInfo?.network_type || undefined}
+        ip={location?.ip}
+        coordinates={location ? `${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}` : undefined}
+        mode={mode}
+        onModeChange={(v) => setMode(v as "network" | "firewall" | "ports")}
+        onMouseDown={() => getCurrentWindow().startDragging()}
+      />
 
       {/* Update banner */}
       {appUpdate.available && appUpdate.updateInfo && (
-        <div className="update-banner">
-          <span className="update-banner__text">
-            Blip v{appUpdate.updateInfo.version} is available
-          </span>
-          {appUpdate.downloading ? (
-            <span className="update-banner__progress">Updating... {appUpdate.progress}%</span>
-          ) : (
-            <>
-              <Button variant="primary" size="sm" onClick={appUpdate.installUpdate}>
-                Update
-              </Button>
-              <Button variant="ghost" size="sm" onClick={appUpdate.dismiss}>
-                Later
-              </Button>
-            </>
-          )}
-          {appUpdate.error && (
-            <span className="update-banner__error">{appUpdate.error}</span>
-          )}
-        </div>
+        <UpdateBanner
+          version={`v${appUpdate.updateInfo.version}`}
+          onUpdate={appUpdate.installUpdate}
+          onLater={appUpdate.dismiss}
+          downloading={appUpdate.downloading}
+          progress={appUpdate.progress ?? undefined}
+        />
       )}
 
       <Map
@@ -366,7 +319,7 @@ function App() {
         onMove={onMove}
         onMoveStart={onMoveStart}
         onClick={handleMapClick}
-        mapStyle={getThemeStyle(themeIndex)}
+        mapStyle={mapStyle}
         style={{ width: "100%", height: "100%" }}
         minZoom={1.5}
         maxZoom={8}
@@ -379,7 +332,7 @@ function App() {
           </Marker>
         )}
 
-        <NetworkArcLayer arcs={arcs} particles={particles} blockedMarkers={blockedMarkers} showParticles={showParticles} heatmapData={heatmapData} showHeatmap={showHeatmap} />
+        <NetworkArcLayer arcs={arcs} particles={particles} blockedMarkers={blockedMarkers} showParticles={showParticles} heatmapData={heatmapData} showHeatmap={showHeatmap} endpoints={endpoints} />
         <EndpointLayer
           endpoints={endpoints}
           zoom={viewState.zoom}
@@ -404,22 +357,18 @@ function App() {
             />
           ) : (
             <>
-              <div className="sidebar-tabs">
-                <button className={`sidebar-tab${sidebarTab === "network" ? " sidebar-tab--active" : ""}`} onClick={() => setSidebarTab("network")}>
-                  <Icon icon={activity} size="xs" />
-                  Network
-                </button>
-                <button className={`sidebar-tab${sidebarTab === "trackers" ? " sidebar-tab--active" : ""}`} onClick={() => setSidebarTab("trackers")}>
-                  <Icon icon={shieldCheck} size="xs" />
-                  Trackers
-                </button>
-                <button className={`sidebar-tab${sidebarTab === "dns" ? " sidebar-tab--active" : ""}`} onClick={() => setSidebarTab("dns")}>
-                  <Icon icon={globe} size="xs" />
-                  DNS
-                </button>
-              </div>
+              <SegmentedControl
+                options={[
+                  { value: "network", label: "Network" },
+                  { value: "trackers", label: "Trackers" },
+                  { value: "dns", label: "DNS" },
+                ]}
+                value={sidebarTab}
+                onChange={(v) => setSidebarTab(v as "network" | "trackers" | "dns")}
+                size="md"
+              />
               {sidebarTab === "network" ? (
-                <GlobalStats connections={connections} totalEver={totalEver} bandwidth={bandwidth} serviceSamples={serviceSamples} serviceBreakdown={serviceBreakdown} serviceColors={serviceColors} onExpandChart={setExpandedChart} downloadMbps={speedTest.downloadMbps} uploadMbps={speedTest.uploadMbps} />
+                <GlobalStats connections={connections} totalEver={totalEver} bandwidth={bandwidth} serviceSamples={serviceSamples} serviceBreakdown={serviceBreakdown} serviceColors={serviceColors} downloadMbps={speedTest.downloadMbps} uploadMbps={speedTest.uploadMbps} />
               ) : sidebarTab === "trackers" ? (
                 <TrackerStats visible={sidebarTab === "trackers"} />
               ) : (
@@ -473,7 +422,7 @@ function App() {
         </span>
       </div>
 
-      <Settings open={settingsOpen} onClose={() => setSettingsOpen(false)} themeIndex={themeIndex} onThemeChange={(i) => { setThemeIndex(i); localStorage.setItem("blip-map-theme", String(i)); }} firewallMode={firewallMode} onFirewallModeChange={setFirewallMode} />
+      <Settings open={settingsOpen} onClose={() => setSettingsOpen(false)} firewallMode={firewallMode} onFirewallModeChange={setFirewallMode} />
 
       <FirewallAlertOverlay
         alerts={firewallAlerts}
@@ -487,19 +436,6 @@ function App() {
         }}
         onDismiss={dismissFirewallAlert}
       />
-
-      {expandedChart && (
-        <ExpandedChartModal
-          chartMode={expandedChart}
-          onClose={() => setExpandedChart(null)}
-          samples={bandwidth.samples}
-          totalIn={bandwidth.totalIn}
-          totalOut={bandwidth.totalOut}
-          serviceSamples={serviceSamples}
-          serviceBreakdown={serviceBreakdown}
-          serviceColors={serviceColors}
-        />
-      )}
 
       {showSetup && (
         <SetupPrompt onComplete={() => {

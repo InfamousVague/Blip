@@ -1,0 +1,14 @@
+/* CollapsibleSection — trigger + body defaults */
+
+.blip-collapsible-trigger {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--blip-text-secondary);
+}
+
+.blip-collapsible-body {
+  display: flex;
+  flex-direction: column;
+  padding-top: 8px;
+}

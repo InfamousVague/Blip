@@ -664,6 +664,24 @@ impl Database {
         Ok(())
     }
 
+    pub fn reset_preferences(&self) -> Result<(), String> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM preferences", [])
+            .map_err(|e| format!("Reset preferences failed: {}", e))?;
+        Ok(())
+    }
+
+    pub fn clear_history(&self) -> Result<(), String> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute_batch(
+            "DELETE FROM connections;
+             DELETE FROM dns_queries;
+             DELETE FROM tracker_summary;
+             DELETE FROM session_stats;"
+        ).map_err(|e| format!("Clear history failed: {}", e))?;
+        Ok(())
+    }
+
     // ---- Blocklists ----
 
     pub fn save_blocklist(

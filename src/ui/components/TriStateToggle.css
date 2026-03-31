@@ -1,0 +1,28 @@
+.blip-tristate {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid var(--blip-border-default);
+}
+
+.blip-tristate__btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.blip-tristate__btn:hover:not(.blip-tristate__btn--active) {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.blip-tristate--disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}

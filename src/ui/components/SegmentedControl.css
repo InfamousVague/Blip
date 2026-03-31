@@ -1,0 +1,32 @@
+.blip-segmented {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.blip-segmented__item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--blip-text-tertiary);
+  font-family: var(--font-sans);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.blip-segmented__item:hover:not(.blip-segmented__item--active) {
+  color: var(--blip-text-secondary);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.blip-segmented__item--active {
+  background: var(--blip-purple-muted);
+  color: var(--blip-text-primary);
+  font-weight: 600;
+}

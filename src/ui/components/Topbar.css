@@ -1,0 +1,86 @@
+.blip-topbar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 48px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  -webkit-app-region: drag;
+  app-region: drag;
+
+  /* Clear liquid glass */
+  background: rgba(0, 0, 0, 0.004);
+  border-bottom: 1px solid rgba(227, 227, 227, 0.06);
+  backdrop-filter: blur(20px) saturate(1.8);
+  -webkit-backdrop-filter: blur(20px) saturate(1.8);
+}
+
+/* Space for macOS traffic lights */
+.blip-topbar__spacer {
+  width: 70px;
+  flex-shrink: 0;
+}
+
+/* Center: Frosted ISP info pill */
+.blip-topbar__info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 14px;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+  flex-shrink: 0;
+}
+
+.blip-topbar__isp {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--blip-text-primary);
+}
+
+.blip-topbar__badge {
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 500;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--blip-purple-subtle);
+  color: var(--blip-text-tertiary);
+}
+
+.blip-topbar__sep {
+  font-size: 13px;
+  color: var(--blip-text-tertiary);
+}
+
+.blip-topbar__meta {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--blip-text-secondary);
+}
+
+.blip-topbar__coord {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  color: var(--blip-text-tertiary);
+}
+
+/* Right: Frosted mode switcher */
+.blip-topbar__switcher {
+  padding: 3px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+  flex-shrink: 0;
+}

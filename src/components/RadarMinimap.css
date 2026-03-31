@@ -1,16 +1,30 @@
 .radar-minimap {
   position: absolute;
   top: 56px;
-  left: var(--sp-4);
+  left: 12px;
   z-index: 5;
-  border-radius: 50%;
-  overflow: hidden;
   pointer-events: none;
-  background: rgba(10, 10, 14, 0.5);
-  backdrop-filter: blur(24px) saturate(1.6);
-  -webkit-backdrop-filter: blur(24px) saturate(1.6);
-  box-shadow:
-    0 4px 24px rgba(0, 0, 0, 0.5),
-    0 0 0 1px rgba(140, 120, 255, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+
+  /* Outer glass circle — matches topbar/sidebar glass */
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.004);
+  backdrop-filter: blur(20px) saturate(1.8);
+  -webkit-backdrop-filter: blur(20px) saturate(1.8);
+  border: 1px solid rgba(227, 227, 227, 0.06);
+
+  /* Padding creates the glass rim around the frosted inner */
+  padding: 8px;
+}
+
+.radar-minimap canvas {
+  border-radius: 50%;
+  display: block;
+  /* Frosted inner disc — canvas fills it completely */
+  background: rgba(255, 255, 255, 0.06);
+  border: none;
+  outline: none;
+  box-shadow: none;
+  /* Remove any extra space */
+  margin: 0;
+  padding: 0;
 }

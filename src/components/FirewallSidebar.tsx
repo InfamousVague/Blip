@@ -1,17 +1,9 @@
 import { useState, useMemo } from "react";
-import { Text } from "@mattmattmattmatt/base/primitives/text/Text";
-import { Input } from "@mattmattmattmatt/base/primitives/input/Input";
-import { Icon } from "@mattmattmattmatt/base/primitives/icon/Icon";
-import { shield } from "@mattmattmattmatt/base/primitives/icon/icons/shield";
-import { shieldCheck } from "@mattmattmattmatt/base/primitives/icon/icons/shield-check";
-import { shieldX } from "@mattmattmattmatt/base/primitives/icon/icons/shield-x";
-import { search as searchIcon } from "@mattmattmattmatt/base/primitives/icon/icons/search";
-import "@mattmattmattmatt/base/primitives/text/text.css";
-import "@mattmattmattmatt/base/primitives/input/input.css";
-import "@mattmattmattmatt/base/primitives/icon/icon.css";
+import { SearchBar } from "../ui/components/SearchBar";
+import { SegmentedControl } from "../ui/components/SegmentedControl";
+import { Pagination } from "../ui/components/Pagination";
+import { FrostedCard } from "../ui/glass";
 import { FirewallAppRow } from "./FirewallAppRow";
-import { Pagination } from "@mattmattmattmatt/base/primitives/pagination/Pagination";
-import "@mattmattmattmatt/base/primitives/pagination/pagination.css";
 import type { AppWithRule } from "../hooks/useFirewallRules";
 import type { ResolvedConnection } from "../types/connection";
 import "./FirewallSidebar.css";
@@ -30,7 +22,7 @@ interface Props {
   connections?: ResolvedConnection[];
 }
 
-const PAGE_SIZE = 40;
+const PAGE_SIZE = 15;
 
 function getAppDisplayName(appId: string): string {
   const parts = appId.split(".");
@@ -158,41 +150,31 @@ export function FirewallContent({ apps, onSetRule, onDeleteRuleById, connections
 
   return (
     <>
-      <div className="sidebar-tabs">
-        <button className={`sidebar-tab${filter === "all" ? " sidebar-tab--active" : ""}`} onClick={() => { setFilter("all"); setPage(1); }}>
-          <Icon icon={shield} size="xs" />
-          All
-        </button>
-        <button className={`sidebar-tab${filter === "allow" ? " sidebar-tab--active" : ""}`} onClick={() => { setFilter("allow"); setPage(1); }}>
-          <Icon icon={shieldCheck} size="xs" />
-          Allowed
-        </button>
-        <button className={`sidebar-tab${filter === "deny" ? " sidebar-tab--active" : ""}`} onClick={() => { setFilter("deny"); setPage(1); }}>
-          <Icon icon={shieldX} size="xs" />
-          Blocked
-        </button>
-      </div>
+      <SearchBar
+        placeholder="Search apps..."
+        value={search}
+        onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+        onClear={() => { setSearch(""); setPage(1); }}
+      />
 
-      <div className="fw-sidebar__search">
-        <Input
-          placeholder="Search apps..."
-          value={search}
-          onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-          onClear={() => { setSearch(""); setPage(1); }}
-          size="md"
-          iconLeft={searchIcon}
-          variant="filled"
+      <FrostedCard gap={8} className="fw-sidebar__list">
+        <SegmentedControl
+          options={[
+            { value: "all", label: "All" },
+            { value: "allow", label: "Allow" },
+            { value: "deny", label: "Deny" },
+          ]}
+          value={filter}
+          onChange={(v) => { setFilter(v as StatusFilter); setPage(1); }}
+          size="sm"
         />
-      </div>
-
-      <div className="fw-sidebar__list">
         {visible.length === 0 ? (
           <div className="fw-sidebar__empty">
-            <Text size="xs" color="tertiary">
+            <span style={{ color: "var(--blip-text-tertiary)", fontSize: 12 }}>
               {apps.length === 0
                 ? "No apps detected yet. Browse the web to discover apps."
                 : "No apps match your filter."}
-            </Text>
+            </span>
           </div>
         ) : (
           visible.map((app) => {
@@ -220,7 +202,7 @@ export function FirewallContent({ apps, onSetRule, onDeleteRuleById, connections
             );
           })
         )}
-      </div>
+      </FrostedCard>
 
       <Pagination
         page={safePage}

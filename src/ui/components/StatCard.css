@@ -1,0 +1,37 @@
+.blip-stat-card__row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: nowrap;
+  overflow: hidden;
+  justify-content: space-between;
+}
+
+.blip-stat-card__item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.blip-stat-card__label {
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 1.5px;
+  color: var(--blip-text-tertiary);
+  white-space: nowrap;
+}
+
+.blip-stat-card__value {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Scale down NumberRoll when space is tight */
+.blip-stat-card__value .number-roll {
+  font-size: inherit !important;
+}

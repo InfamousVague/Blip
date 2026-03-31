@@ -5,164 +5,6 @@
   position: relative;
 }
 
-/* ── Update banner ── */
-
-.update-banner {
-  position: absolute;
-  top: 52px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 9998;
-  display: flex;
-  align-items: center;
-  gap: var(--sp-3);
-  padding: var(--sp-2) var(--sp-4);
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.85) 0%, rgba(139, 92, 246, 0.85) 100%);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: var(--radius-md);
-  box-shadow: 0 4px 24px rgba(99, 102, 241, 0.3);
-  font-family: var(--font-sans);
-  font-size: var(--text-sm-size);
-  color: white;
-  white-space: nowrap;
-  animation: update-banner-slide 0.3s ease-out;
-  -webkit-app-region: no-drag;
-  app-region: no-drag;
-}
-
-.update-banner__text {
-  font-weight: var(--weight-medium);
-}
-
-.update-banner__progress {
-  font-family: var(--font-mono);
-  font-size: var(--text-xs-size);
-  opacity: 0.8;
-}
-
-.update-banner__error {
-  font-size: var(--text-xs-size);
-  color: rgba(255, 200, 200, 0.9);
-}
-
-@keyframes update-banner-slide {
-  from { opacity: 0; transform: translateX(-50%) translateY(-10px); }
-  to { opacity: 1; transform: translateX(-50%) translateY(0); }
-}
-
-/* ── Topbar (Claude Desktop-style dark glass bar) ── */
-
-.topbar {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 48px;
-  z-index: 9999;
-  -webkit-app-region: drag;
-  app-region: drag;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: linear-gradient(135deg, rgba(18, 18, 28, 0.88) 0%, rgba(22, 18, 32, 0.85) 50%, rgba(18, 18, 24, 0.88) 100%);
-  backdrop-filter: blur(40px) saturate(1.8);
-  -webkit-backdrop-filter: blur(40px) saturate(1.8);
-  border-bottom: 1px solid rgba(140, 120, 255, 0.06);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
-}
-
-.topbar__left {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-3);
-  padding-left: 96px; /* space for traffic light buttons (x:20 + ~76px for 3 buttons + gap) */
-  -webkit-app-region: no-drag;
-  app-region: no-drag;
-}
-
-.topbar__isp {
-  font-family: var(--font-sans);
-  font-weight: var(--weight-semibold);
-  color: var(--color-text-primary);
-  font-size: var(--text-sm-size);
-}
-
-.topbar__badge {
-  font-family: var(--font-sans);
-  font-size: var(--text-xs-size);
-  font-weight: var(--weight-medium);
-  color: var(--color-text-primary);
-  background: rgba(255, 255, 255, 0.1);
-  padding: 1px 8px;
-  border-radius: var(--shape-pill);
-  white-space: nowrap;
-}
-
-.topbar__meta {
-  font-family: var(--font-mono);
-  font-size: var(--text-xs-size);
-  color: var(--color-text-tertiary);
-}
-
-.topbar__sep {
-  width: 1px;
-  height: 14px;
-  background: rgba(255, 255, 255, 0.12);
-}
-
-.topbar__right {
-  padding-right: var(--sp-4);
-  -webkit-app-region: no-drag;
-  app-region: no-drag;
-}
-
-/* Make the segmented control match the glass topbar */
-.topbar__right .seg {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.1);
-}
-
-.theme-switcher {
-  position: absolute;
-  top: 52px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 15;
-  display: flex;
-  gap: 6px;
-  padding: var(--sp-1) var(--sp-3);
-  background: var(--glass-bg);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  border: var(--glass-border-width) solid var(--glass-border);
-  border-radius: var(--shape-pill);
-  box-shadow: var(--glass-shadow);
-}
-
-.theme-swatch {
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  border: 2px solid;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: transform 0.15s ease, border-color 0.15s ease;
-  padding: 0;
-}
-
-.theme-swatch:hover {
-  transform: scale(1.15);
-}
-
-.theme-swatch--active {
-  transform: scale(1.2);
-  box-shadow: 0 0 8px rgba(255, 255, 255, 0.2);
-}
-
 .maplibregl-ctrl-bottom-left,
 .maplibregl-ctrl-bottom-right {
   display: none;
@@ -180,44 +22,6 @@
   pointer-events: none;
 }
 
-.sidebar-tabs {
-  display: flex;
-  gap: 0;
-  padding: 0;
-  margin-bottom: var(--sp-3);
-  border-bottom: 1px solid var(--glass-border);
-  flex-shrink: 0;
-  width: 100%;
-}
-
-.sidebar-tab {
-  flex: 1;
-  padding: var(--sp-2) var(--sp-3);
-  text-align: center;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--sp-1);
-  background: none;
-  border: none;
-  color: var(--color-text-tertiary);
-  font-family: var(--font-sans);
-  font-size: var(--text-sm-size);
-  font-weight: var(--weight-medium);
-  cursor: pointer;
-  border-bottom: 2px solid transparent;
-  transition: color 0.15s ease, border-color 0.15s ease;
-}
-
-.sidebar-tab:hover {
-  color: var(--color-text-secondary);
-}
-
-.sidebar-tab--active {
-  color: var(--color-text-primary);
-  border-bottom-color: var(--color-text-primary);
-}
-
 .elevation-banner {
   position: absolute;
   top: 64px; /* below 52px topbar + 12px gap */
@@ -228,53 +32,61 @@
   align-items: center;
   gap: var(--sp-3);
   padding: var(--sp-2) var(--sp-4);
-  background: var(--glass-bg);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  border: var(--glass-border-width) solid var(--glass-border);
-  border-radius: var(--radius-md);
-  box-shadow: var(--glass-shadow);
+  background: var(--glass-frosted-fill);
+  backdrop-filter: blur(var(--glass-frosted-blur)) saturate(var(--glass-frosted-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-frosted-blur)) saturate(var(--glass-frosted-saturate));
+  border: 1px solid var(--glass-frosted-border);
+  border-radius: 10px;
+  box-shadow: inset 6px 6px 3px -6px rgba(179, 179, 179, 0.5),
+              inset -6px -6px 3px -6px rgba(179, 179, 179, 0.5);
   font-family: var(--font-sans);
   font-size: var(--text-sm-size);
-  color: var(--color-text-secondary);
+  color: var(--blip-text-secondary);
   white-space: nowrap;
 }
 
 .zoom-controls {
   position: absolute;
-  bottom: var(--sp-4);
-  left: var(--sp-4);
+  bottom: 12px;
+  left: 12px;
   display: flex;
   flex-direction: column;
-  gap: var(--sp-1);
+  gap: 4px;
   z-index: 4;
-  background: rgba(10, 10, 14, 0.65);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: var(--radius-md);
-  padding: var(--sp-1);
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+  padding: 6px;
+  border-radius: 9999px;
+
+  /* Match topbar glass: blur + thin border + near-transparent */
+  background: rgba(0, 0, 0, 0.004);
+  backdrop-filter: blur(20px) saturate(1.8);
+  -webkit-backdrop-filter: blur(20px) saturate(1.8);
+  border: 1px solid rgba(227, 227, 227, 0.06);
 }
 
-.zoom-controls .btn {
-  background: transparent !important;
-  border-color: transparent !important;
-  backdrop-filter: none !important;
-  box-shadow: none !important;
+.zoom-controls .blip-btn {
+  border-radius: 50%;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  /* Subtle frosted button inside the glass pill */
+  background: rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid rgba(227, 227, 227, 0.04) !important;
 }
 
-.zoom-controls .btn:hover {
-  background: rgba(255, 255, 255, 0.08) !important;
-}
-
-.zoom-controls .btn--primary {
+.zoom-controls .blip-btn:hover {
   background: rgba(255, 255, 255, 0.12) !important;
-  color: white !important;
 }
 
-.zoom-controls .btn--primary:hover {
-  background: rgba(255, 255, 255, 0.18) !important;
+.zoom-controls .blip-btn--primary {
+  background: var(--blip-purple-muted) !important;
+}
+
+.zoom-controls .blip-btn--primary:hover {
+  background: var(--blip-purple-solid) !important;
 }
 
 .map-btn-tooltip {
@@ -287,15 +99,15 @@
   left: calc(100% + 8px);
   top: 50%;
   transform: translateY(-50%);
-  background: var(--glass-bg-elevated);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  border: var(--glass-border-width) solid var(--glass-border);
-  border-radius: var(--radius-sm);
+  background: var(--blip-bg-elevated);
+  backdrop-filter: blur(20px) saturate(1.8);
+  -webkit-backdrop-filter: blur(20px) saturate(1.8);
+  border: 1px solid var(--blip-border-default);
+  border-radius: 6px;
   padding: var(--sp-1) var(--sp-2);
   font-size: var(--text-xs-size);
   font-family: var(--font-sans);
-  color: var(--color-text-primary);
+  color: var(--blip-text-primary);
   white-space: nowrap;
   opacity: 0;
   pointer-events: none;
@@ -369,81 +181,6 @@
   white-space: nowrap;
 }
 
-/* Endpoint detail header card */
-.endpoint-detail-header {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: var(--sp-3);
-  padding: var(--sp-4);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-}
-
-.endpoint-detail-header__back {
-  position: absolute;
-  top: var(--sp-2);
-  left: var(--sp-2);
-  z-index: 1;
-  opacity: 0.8;
-}
-
-.endpoint-detail-header__back:hover {
-  opacity: 1;
-}
-
-.endpoint-detail-header__icon {
-  position: relative;
-  width: 52px;
-  height: 48px;
-  flex-shrink: 0;
-  margin-left: var(--sp-4);
-}
-
-.endpoint-detail-header__brand-flat {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-
-.endpoint-detail-header__fallback {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-
-.endpoint-detail-header__info {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-  flex: 1;
-}
-
-.endpoint-detail-header__name {
-  font-size: var(--text-base-size);
-  font-weight: var(--weight-semibold);
-  line-height: var(--text-base-line);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.endpoint-detail-header__subtitle {
-  font-size: var(--text-xs-size);
-  line-height: var(--text-xs-line);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.endpoint-detail-header__badges {
-  display: flex;
-  gap: var(--sp-2);
-  align-items: center;
-  margin-top: var(--sp-1);
-}
-
 /* Auto-scroll text that overflows */
 .text-scroll {
   overflow: hidden;
@@ -472,17 +209,18 @@
   position: fixed;
   pointer-events: none;
   z-index: 100;
-  background: var(--glass-bg-elevated);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  border: var(--glass-border-width) solid var(--glass-border);
-  border-radius: var(--radius-md);
-  padding: var(--sp-2) var(--sp-3);
+  /* Match sidebar glass */
+  background: rgba(0, 0, 0, 0.004);
+  backdrop-filter: blur(20px) saturate(1.8);
+  -webkit-backdrop-filter: blur(20px) saturate(1.8);
+  border: 1px solid rgba(227, 227, 227, 0.06);
+  border-radius: 14px;
+  padding: var(--sp-3) var(--sp-4);
   font-family: var(--font-mono);
   font-size: var(--text-sm-size);
-  color: var(--color-text-primary);
+  color: var(--blip-text-primary);
   white-space: nowrap;
-  box-shadow: var(--glass-shadow);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
 }
 
 .endpoint-tooltip__domain {
@@ -490,12 +228,12 @@
 }
 
 .endpoint-tooltip__location {
-  color: var(--color-text-tertiary);
+  color: var(--blip-text-tertiary);
   font-size: var(--text-xs-size);
 }
 
 .endpoint-tooltip__stats {
-  color: var(--color-text-secondary);
+  color: var(--blip-text-secondary);
   font-size: var(--text-xs-size);
   margin-top: 2px;
 }
@@ -517,250 +255,149 @@
 }
 
 .endpoint-tooltip__service {
-  color: var(--color-text-primary);
+  color: var(--blip-text-primary);
   background: rgba(255, 255, 255, 0.1);
   padding: 1px 6px;
-  border-radius: var(--radius-sm);
+  border-radius: 6px;
   font-weight: var(--weight-medium);
   flex-shrink: 0;
 }
 
 .endpoint-tooltip__process {
-  color: var(--color-text-secondary);
+  color: var(--blip-text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .endpoint-tooltip__port {
-  color: var(--color-text-tertiary);
+  color: var(--blip-text-tertiary);
   flex-shrink: 0;
 }
 
 .endpoint-tooltip__more {
   font-size: var(--text-xs-size);
-  color: var(--color-text-tertiary);
+  color: var(--blip-text-tertiary);
   padding-top: 2px;
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   Glassmorphism overrides for base primitives on glass surfaces
-   (sidebar, settings panel, setup prompt)
+   Utility text classes — replace repeated inline style patterns
    ═══════════════════════════════════════════════════════════════════ */
 
-/* ── Buttons ── */
-
-.sidebar .btn--secondary,
-.settings-panel .btn--secondary,
-.setup-prompt .btn--secondary {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.12);
-}
-.sidebar .btn--secondary:hover,
-.settings-panel .btn--secondary:hover,
-.setup-prompt .btn--secondary:hover {
-  background: rgba(255, 255, 255, 0.14);
-  border-color: rgba(255, 255, 255, 0.18);
-}
-.sidebar .btn--secondary:active,
-.settings-panel .btn--secondary:active,
-.setup-prompt .btn--secondary:active {
-  background: rgba(255, 255, 255, 0.10);
+/** Monospace list item (process names, IPs, hostnames) */
+.blip-text-mono {
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--blip-text-primary);
 }
 
-.sidebar .btn--ghost,
-.settings-panel .btn--ghost,
-.setup-prompt .btn--ghost {
-  color: var(--color-text-secondary);
-}
-.sidebar .btn--ghost:hover,
-.settings-panel .btn--ghost:hover,
-.setup-prompt .btn--ghost:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--color-text-primary);
+/** Tertiary helper label (small, muted) */
+.blip-text-label {
+  font-size: 11px;
+  color: var(--blip-text-tertiary);
 }
 
-.sidebar .btn--primary,
-.settings-panel .btn--primary,
-.setup-prompt .btn--primary {
-  background: rgba(255, 255, 255, 0.90);
-  border-color: rgba(255, 255, 255, 0.90);
-  color: rgba(0, 0, 0, 0.88);
-}
-.sidebar .btn--primary:hover,
-.settings-panel .btn--primary:hover,
-.setup-prompt .btn--primary:hover {
-  background: rgba(255, 255, 255, 0.80);
-  border-color: rgba(255, 255, 255, 0.80);
+/** Empty-state placeholder */
+.blip-text-empty {
+  font-size: 13px;
+  color: var(--blip-text-tertiary);
 }
 
-/* ── Inputs ── */
-
-.sidebar .input-wrapper--outline,
-.settings-panel .input-wrapper--outline,
-.setup-prompt .input-wrapper--outline {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(255, 255, 255, 0.10);
-}
-.sidebar .input-wrapper--outline:focus-within,
-.settings-panel .input-wrapper--outline:focus-within,
-.setup-prompt .input-wrapper--outline:focus-within {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.22);
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.06);
-}
-
-.sidebar .input-wrapper--filled,
-.settings-panel .input-wrapper--filled,
-.setup-prompt .input-wrapper--filled {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: transparent;
-}
-.sidebar .input-wrapper--filled:focus-within,
-.settings-panel .input-wrapper--filled:focus-within,
-.setup-prompt .input-wrapper--filled:focus-within {
-  background: rgba(255, 255, 255, 0.10);
-  border-color: rgba(255, 255, 255, 0.18);
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.06);
-}
-
-.sidebar .input::placeholder,
-.settings-panel .input::placeholder,
-.setup-prompt .input::placeholder {
-  color: rgba(255, 255, 255, 0.30);
-}
-
-/* ── Toggles ── */
-
-.sidebar .toggle__track,
-.settings-panel .toggle__track,
-.setup-prompt .toggle__track {
-  background: rgba(255, 255, 255, 0.10);
-  border-color: rgba(255, 255, 255, 0.12);
-}
-
-.sidebar .toggle__thumb,
-.settings-panel .toggle__thumb,
-.setup-prompt .toggle__thumb {
-  background: rgba(255, 255, 255, 0.85);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-}
-
-.sidebar .toggle__input:checked + .toggle__track,
-.settings-panel .toggle__input:checked + .toggle__track,
-.setup-prompt .toggle__input:checked + .toggle__track {
-  background: var(--color-accent);
-  border-color: var(--color-accent);
-}
-
-.sidebar .toggle__input:focus-visible + .toggle__track,
-.settings-panel .toggle__input:focus-visible + .toggle__track,
-.setup-prompt .toggle__input:focus-visible + .toggle__track {
-  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.2), 0 0 0 4px rgba(255, 255, 255, 0.12);
-}
-
-/* ── Segmented Control ── */
-
-.sidebar .seg,
-.settings-panel .seg,
-.setup-prompt .seg {
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.sidebar .seg__indicator,
-.settings-panel .seg__indicator,
-.setup-prompt .seg__indicator {
-  background: rgba(255, 255, 255, 0.88);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
-}
-
-.sidebar .seg__option,
-.settings-panel .seg__option,
-.setup-prompt .seg__option {
-  color: rgba(255, 255, 255, 0.55);
-}
-
-.sidebar .seg__option--active,
-.settings-panel .seg__option--active,
-.setup-prompt .seg__option--active {
-  color: rgba(0, 0, 0, 0.85);
-}
-
-.sidebar .seg__option:hover:not(:disabled):not(.seg__option--active),
-.settings-panel .seg__option:hover:not(:disabled):not(.seg__option--active),
-.setup-prompt .seg__option:hover:not(:disabled):not(.seg__option--active) {
-  color: rgba(255, 255, 255, 0.80);
-}
-
-/* ── Pagination ── */
-
-.sidebar .pagination__btn,
-.settings-panel .pagination__btn,
-.setup-prompt .pagination__btn {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(255, 255, 255, 0.10);
-  color: var(--color-text-secondary);
-}
-
-.sidebar .pagination__btn:hover:not(:disabled),
-.settings-panel .pagination__btn:hover:not(:disabled),
-.setup-prompt .pagination__btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.12);
-  border-color: rgba(255, 255, 255, 0.16);
-  color: var(--color-text-primary);
-}
-
-/* ── Badge / Tag on glass (generic fallback removed — see specific overrides below) ── */
-
-/* ── Select / Combobox on glass ── */
-
-.sidebar select,
-.settings-panel select,
-.setup-prompt select {
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.10);
-  color: var(--color-text-primary);
-  border-radius: var(--radius-sm);
-  padding: var(--sp-1) var(--sp-3);
+/** Section heading (settings panels, about page) */
+.blip-text-heading {
+  font-size: 18px;
+  font-weight: 600;
   font-family: var(--font-sans);
-  font-size: var(--text-sm-size);
-  cursor: pointer;
-  transition: all 0.15s ease;
+  color: var(--blip-text-primary);
 }
 
-.sidebar select:hover,
-.settings-panel select:hover,
-.setup-prompt select:hover {
-  background: rgba(255, 255, 255, 0.10);
-  border-color: rgba(255, 255, 255, 0.16);
+/** Settings row title */
+.blip-text-row-title {
+  font-size: 13px;
+  font-weight: 500;
+  font-family: var(--font-sans);
+  color: var(--blip-text-primary);
 }
 
-.sidebar select:focus,
-.settings-panel select:focus,
-.setup-prompt select:focus {
-  border-color: rgba(255, 255, 255, 0.22);
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.06);
-  outline: none;
+/** Settings row description */
+.blip-text-row-desc {
+  font-size: 11px;
+  font-family: var(--font-sans);
+  color: var(--blip-text-tertiary);
 }
 
-/* ── Tri-State Toggle ── */
+/* ── Blocked connection item (EndpointDetail) ── */
 
-.sidebar .tri-state,
-.settings-panel .tri-state {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(255, 255, 255, 0.10);
+.blip-blocked-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px;
+  border-radius: 8px;
+  background: rgba(239, 68, 68, 0.06);
+  border-left: 2px solid rgba(239, 68, 68, 0.4);
 }
 
-.sidebar .tri-state__btn + .tri-state__btn,
-.settings-panel .tri-state__btn + .tri-state__btn {
-  border-left-color: rgba(255, 255, 255, 0.08);
+.blip-blocked-item__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
 }
 
-.sidebar .tri-state__btn:hover:not(:disabled):not(.tri-state__btn--active),
-.settings-panel .tri-state__btn:hover:not(:disabled):not(.tri-state__btn--active) {
-  background: rgba(255, 255, 255, 0.08);
+.blip-blocked-item__domain {
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--blip-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
 }
+
+.blip-blocked-item__meta {
+  font-size: 10px;
+  color: var(--blip-text-tertiary);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Shared scrollable list — thin scrollbar pattern used by sidebar lists
+   (tracker-stats, dns-log, firewall-sidebar, ports-sidebar)
+   ═══════════════════════════════════════════════════════════════════ */
+
+.blip-scroll-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-md);
+  padding: var(--sp-1);
+}
+
+.blip-scroll-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.blip-scroll-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.blip-scroll-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Glass overrides for base kit primitives (Collapsible, ScrollArea,
+   FileUploadZone, Checkbox) — these are the only base kit
+   components still used; all others have been replaced by the Blip
+   UI kit (src/ui/components/).
+   ═══════════════════════════════════════════════════════════════════ */
 
 /* ── Collapsible ── */
 
@@ -780,60 +417,31 @@
   border-top-color: rgba(255, 255, 255, 0.06);
 }
 
-/* ── Separator ── */
-
-.sidebar .separator--horizontal,
-.settings-panel .separator--horizontal {
-  border-top-color: rgba(255, 255, 255, 0.08);
+/* Collapsible inside FrostedCard — strip internal styling, align text */
+.blip-collapsible-card {
+  padding: 8px !important;
 }
 
-.sidebar .separator--vertical,
-.settings-panel .separator--vertical {
-  border-left-color: rgba(255, 255, 255, 0.08);
+.blip-collapsible-card .collapsible {
+  border: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  background: transparent !important;
 }
 
-/* ── Badge — preserve semantic colors, fix neutral variants ── */
-
-.sidebar .badge--neutral-solid,
-.settings-panel .badge--neutral-solid {
-  background: rgba(255, 255, 255, 0.18);
-  color: var(--color-text-primary);
+.blip-collapsible-card .collapsible__trigger {
+  padding: 6px !important;
+  border-radius: 8px !important;
+  transition: background 0.15s ease !important;
 }
 
-.sidebar .badge--neutral-subtle,
-.settings-panel .badge--neutral-subtle {
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--color-text-secondary);
+.blip-collapsible-card .collapsible__trigger:hover {
+  background: rgba(255, 255, 255, 0.06) !important;
 }
 
-.sidebar .badge--neutral-outline,
-.settings-panel .badge--neutral-outline {
-  border-color: rgba(255, 255, 255, 0.12);
-}
-
-/* ── Chip ── */
-
-.sidebar .chip--filled,
-.settings-panel .chip--filled {
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.sidebar .chip--outlined,
-.settings-panel .chip--outlined {
-  border-color: rgba(255, 255, 255, 0.12);
-}
-
-.sidebar .chip--clickable:hover,
-.settings-panel .chip--clickable:hover {
-  background: rgba(255, 255, 255, 0.12);
-}
-
-/* ── Tag ── */
-
-.sidebar .tag--neutral,
-.settings-panel .tag--neutral {
-  background: rgba(255, 255, 255, 0.10);
-  color: var(--color-text-primary);
+.blip-collapsible-card .collapsible__body {
+  border-top: none !important;
+  padding: 4px 6px 0 6px !important;
 }
 
 /* ── File Upload Zone ── */
@@ -863,5 +471,33 @@
 .settings-panel .scroll-area::-webkit-scrollbar-track,
 .sidebar .scroll-area::-webkit-scrollbar-track {
   background: transparent;
+}
+
+/* ── Select on glass ── */
+
+.sidebar select,
+.settings-panel select {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  color: var(--blip-text-primary);
+  border-radius: 6px;
+  padding: var(--sp-1) var(--sp-3);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm-size);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.sidebar select:hover,
+.settings-panel select:hover {
+  background: rgba(255, 255, 255, 0.10);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+.sidebar select:focus,
+.settings-panel select:focus {
+  border-color: rgba(255, 255, 255, 0.22);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.06);
+  outline: none;
 }
 

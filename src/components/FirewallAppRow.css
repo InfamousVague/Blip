@@ -35,7 +35,7 @@
   background: rgba(255, 255, 255, 0.06);
   font-size: 13px;
   font-weight: 600;
-  color: var(--color-text-secondary);
+  color: var(--blip-text-secondary);
 }
 
 .fw-row__app-img {
@@ -51,7 +51,7 @@
   justify-content: center;
   width: 32px;
   height: 32px;
-  color: var(--color-text-tertiary);
+  color: var(--blip-text-tertiary);
 }
 
 .fw-row__info {
@@ -60,10 +60,6 @@
   display: flex;
   flex-direction: column;
   gap: 1px;
-}
-
-.fw-row__meta {
-  flex-shrink: 0;
 }
 
 .fw-row__toggle {
@@ -77,17 +73,6 @@
   display: flex;
   flex-direction: column;
   gap: var(--sp-1);
-}
-
-/* (Traffic badges use the Badge primitive from Base UI) */
-
-/* ── Detail panel ── */
-
-.fw-row__detail-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: var(--sp-2);
 }
 
 /* ── Scoped rules ── */
@@ -124,7 +109,7 @@
   justify-content: center;
   background: none;
   border: none;
-  color: var(--color-text-tertiary);
+  color: var(--blip-text-tertiary);
   cursor: pointer;
   padding: 2px;
   border-radius: var(--radius-sm);
@@ -132,7 +117,7 @@
 }
 
 .fw-row__rule-delete:hover {
-  color: var(--color-error);
+  color: var(--blip-error);
 }
 
 /* ── Add rule ── */
@@ -147,13 +132,13 @@
   border: 1px dashed rgba(255, 255, 255, 0.10);
   border-radius: var(--radius-sm);
   cursor: pointer;
-  color: var(--color-text-tertiary);
+  color: var(--blip-text-tertiary);
   transition: border-color 0.15s ease, color 0.15s ease;
 }
 
 .fw-row__add-rule-btn:hover {
   border-color: rgba(255, 255, 255, 0.18);
-  color: var(--color-text-secondary);
+  color: var(--blip-text-secondary);
 }
 
 .fw-row__add-rule-form {
@@ -165,6 +150,22 @@
   border-radius: var(--radius-sm);
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.fw-row__input {
+  font-size: 13px;
+  font-family: var(--font-sans);
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--blip-border-default);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--blip-text-primary);
+  outline: none;
+  width: 100%;
+}
+
+.fw-row__input:focus {
+  border-color: rgba(255, 255, 255, 0.16);
 }
 
 .fw-row__add-rule-actions {

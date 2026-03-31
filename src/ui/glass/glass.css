@@ -1,0 +1,13 @@
+/* Shared glass styles */
+
+.glass-surface {
+  isolation: isolate;
+}
+
+.glass-panel {
+  isolation: isolate;
+}
+
+.frosted-card {
+  isolation: isolate;
+}

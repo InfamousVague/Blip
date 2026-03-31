@@ -31,6 +31,7 @@ use std::sync::{Arc, Mutex, RwLock as StdRwLock};
 use tauri::Manager;
 use tokio::sync::RwLock;
 
+
 struct AppState {
     running: Arc<AtomicBool>,
     elevated: Arc<AtomicBool>,
@@ -1330,6 +1331,22 @@ async fn set_preference(state: tauri::State<'_, AppState>, key: String, value: S
         .map_err(|e| format!("Task error: {}", e))?
 }
 
+#[tauri::command]
+async fn reset_preferences(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || db.reset_preferences())
+        .await
+        .map_err(|e| format!("Task error: {}", e))?
+}
+
+#[tauri::command]
+async fn clear_history(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || db.clear_history())
+        .await
+        .map_err(|e| format!("Task error: {}", e))?
+}
+
 /// Auto-running diagnostic that writes snapshots every 5s to /tmp/blip-snapshots/
 fn start_auto_diagnostics(store: ConnectionStore) {
     tokio::spawn(async move {
@@ -1889,12 +1906,20 @@ pub fn run() {
     // Initialize enricher with ASN database
     // We need the resource dir but don't have Tauri's app handle yet.
     // In a bundled app: exe is at Contents/MacOS/app, resources at Contents/Resources/resources
+    // In dev mode: exe is at src-tauri/target/debug/app, resources at src-tauri/resources/
     let enricher = {
         let exe = std::env::current_exe().unwrap_or_default();
         let mac_os_dir = exe.parent().unwrap_or(std::path::Path::new("."));
-        let resource_dir = mac_os_dir.parent()
+        let bundled_dir = mac_os_dir.parent()
             .map(|contents| contents.join("Resources").join("resources"))
             .unwrap_or_else(|| mac_os_dir.join("resources"));
+        // Dev fallback: CARGO_MANIFEST_DIR/resources
+        let dev_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources");
+        let resource_dir = if bundled_dir.join("dbip-asn.mmdb").exists() {
+            bundled_dir
+        } else {
+            dev_dir
+        };
         match Enricher::new(&resource_dir) {
             Ok(e) => {
                 eprintln!("Enricher loaded (ASN database)");
@@ -1981,7 +2006,9 @@ pub fn run() {
             get_app_icons,
             get_listening_ports,
             kill_process,
-            show_main_window
+            show_main_window,
+            reset_preferences,
+            clear_history
         ])
         .setup(|app| {
             eprintln!("[BOOT] Setup starting...");

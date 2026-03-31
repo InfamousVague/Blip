@@ -1,15 +1,8 @@
 import { useState, useMemo } from "react";
-import { Stack } from "@mattmattmattmatt/base/primitives/stack/Stack";
-import { Text } from "@mattmattmattmatt/base/primitives/text/Text";
-import { NumberRoll } from "@mattmattmattmatt/base/primitives/number-roll/NumberRoll";
-import { Pagination } from "@mattmattmattmatt/base/primitives/pagination/Pagination";
-import "@mattmattmattmatt/base/primitives/stack/stack.css";
-import "@mattmattmattmatt/base/primitives/text/text.css";
-import "@mattmattmattmatt/base/primitives/number-roll/number-roll.css";
-import "@mattmattmattmatt/base/primitives/pagination/pagination.css";
-import { Icon } from "@mattmattmattmatt/base/primitives/icon/Icon";
-import { globe } from "@mattmattmattmatt/base/primitives/icon/icons/globe";
-import "@mattmattmattmatt/base/primitives/icon/icon.css";
+import { StatCard } from "../ui/components/StatCard";
+import { DnsRow } from "../ui/components/DnsRow";
+import { Pagination } from "../ui/components/Pagination";
+import { FrostedCard } from "../ui/glass";
 import type { DnsQueryLogEntry, DnsStats } from "../types/connection";
 import { getBrandIcon } from "../utils/brand-icons";
 import "./DnsLog.css";
@@ -40,81 +33,44 @@ export function DnsLog({ log, stats }: Props) {
 
   return (
     <div className="dns-log">
-      <Stack direction="horizontal" gap="4" align="center" style={{ flexShrink: 0 }}>
-        <Stack direction="vertical" gap="1">
-          <Text size="xs" color="tertiary" font="mono">QUERIES</Text>
-          <NumberRoll value={stats.total_queries} minDigits={3} fontSize="var(--text-lg-size)" commas />
-        </Stack>
-        <Stack direction="vertical" gap="1">
-          <Text size="xs" color="tertiary" font="mono">UNIQUE</Text>
-          <NumberRoll value={stats.unique_domains} minDigits={3} fontSize="var(--text-lg-size)" commas />
-        </Stack>
-        <Stack direction="vertical" gap="1">
-          <Text size="xs" color="tertiary" font="mono">BLOCKED</Text>
-          <NumberRoll value={stats.blocked_count} minDigits={1} fontSize="var(--text-lg-size)" commas />
-        </Stack>
-      </Stack>
+      <StatCard
+        stats={[
+          { label: "QUERIES", value: stats.total_queries, minDigits: 5 },
+          { label: "UNIQUE", value: stats.unique_domains, minDigits: 4 },
+          { label: "BLOCKED", value: stats.blocked_count, minDigits: 3 },
+        ]}
+      />
 
-      <Text size="xs" color="tertiary" font="mono">
-        {stats.recent_rate.toFixed(1)} queries/sec
-      </Text>
+      <div style={{ paddingLeft: 14, paddingBottom: 8 }}>
+        <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--blip-text-tertiary)" }}>
+          {stats.recent_rate.toFixed(1)} queries/sec
+        </span>
+      </div>
 
       {isEmpty ? (
         <div className="dns-log__empty">
-          <Text size="sm" color="tertiary">
+          <span style={{ color: "var(--blip-text-tertiary)", fontSize: 13 }}>
             No DNS queries captured yet. DNS monitoring activates with the network extension.
-          </Text>
+          </span>
         </div>
       ) : (
-        <div className="dns-log__list">
-          {visibleLog.map((entry, i) => (
-            <div
-              key={`${entry.domain}-${entry.timestamp_ms}-${i}`}
-              className={`dns-log__row${entry.is_blocked ? " dns-log__row--blocked" : ""}`}
-            >
-              <div className="dns-log__row-main">
-                {(() => {
-                  const brand = getBrandIcon(entry.domain);
-                  return brand ? (
-                    <img src={brand.url} alt="" className="dns-log__icon" />
-                  ) : (
-                    <span className="dns-log__icon dns-log__icon--default"><Icon icon={globe} size="xs" /></span>
-                  );
-                })()}
-                <Text
-                  size="sm"
-                  weight={entry.is_blocked ? "semibold" : "regular"}
-                  font="mono"
-                  truncate={1}
-                  style={{ flex: 1, ...(entry.is_blocked ? { color: "var(--color-danger)" } : {}) }}
-                >
-                  {entry.domain}
-                </Text>
-                <Text size="xs" color="tertiary" style={{ flexShrink: 0 }}>
-                  {formatTime(entry.timestamp_ms)}
-                </Text>
-              </div>
-              {entry.response_ips.length > 0 && (
-                <Text size="xs" color="tertiary" font="mono" truncate={1}>
-                  {entry.response_ips.slice(0, 3).join(", ")}
-                  {entry.response_ips.length > 3 ? ` +${entry.response_ips.length - 3}` : ""}
-                </Text>
-              )}
-              <div style={{ display: "flex", gap: "var(--sp-2)", alignItems: "center" }}>
-                {entry.source_app && (
-                  <Text size="xs" color="tertiary" font="mono" truncate={1} style={{ opacity: 0.6 }}>
-                    {entry.source_app}
-                  </Text>
-                )}
-                {entry.is_blocked && entry.blocked_by && (
-                  <Text size="xs" style={{ color: "var(--color-danger)", opacity: 0.7 }}>
-                    Blocked by {entry.blocked_by}
-                  </Text>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
+        <FrostedCard className="blip-scroll-list">
+          {visibleLog.map((entry, i) => {
+            const brand = getBrandIcon(entry.domain);
+            return (
+              <DnsRow
+                key={`${entry.domain}-${entry.timestamp_ms}-${i}`}
+                domain={entry.domain}
+                timestamp={formatTime(entry.timestamp_ms)}
+                sourceApp={entry.source_app || undefined}
+                responseIps={entry.response_ips}
+                isBlocked={entry.is_blocked}
+                blockedBy={entry.blocked_by || undefined}
+                iconUrl={brand?.url}
+              />
+            );
+          })}
+        </FrostedCard>
       )}
       <Pagination
         page={safePage}

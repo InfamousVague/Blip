@@ -1,14 +1,7 @@
 import { AreaChart, Area, ResponsiveContainer, XAxis, YAxis } from "recharts";
-import { Stack } from "@mattmattmattmatt/base/primitives/stack/Stack";
-import { Text } from "@mattmattmattmatt/base/primitives/text/Text";
-import { Icon } from "@mattmattmattmatt/base/primitives/icon/Icon";
 import { NumberRoll } from "@mattmattmattmatt/base/primitives/number-roll/NumberRoll";
-import { arrowUp } from "@mattmattmattmatt/base/primitives/icon/icons/arrow-up";
-import { arrowDown } from "@mattmattmattmatt/base/primitives/icon/icons/arrow-down";
-import "@mattmattmattmatt/base/primitives/stack/stack.css";
-import "@mattmattmattmatt/base/primitives/text/text.css";
-import "@mattmattmattmatt/base/primitives/icon/icon.css";
 import "@mattmattmattmatt/base/primitives/number-roll/number-roll.css";
+import { BandwidthCard } from "../ui/components/BandwidthCard";
 import type { BandwidthSample } from "../hooks/useBandwidth";
 import "./BandwidthChart.css";
 
@@ -71,45 +64,10 @@ export function BandwidthHeader({ samples, totalIn, totalOut, uploadMbps = 0, do
   const currentOut = samples.length > 0 ? samples[samples.length - 1].bytesOut : 0;
 
   return (
-    <Stack direction="horizontal" gap="3" align="stretch" justify="between">
-      <Stack direction="vertical" gap="1" align="start" style={{ flex: 1 }}>
-        <Stack direction="horizontal" gap="1" align="center">
-          <span style={{ color: "#ec4899" }}><Icon icon={arrowUp} size="sm" /></span>
-          <Text size="xs" color="tertiary" weight="medium">UPLOAD</Text>
-        </Stack>
-        <Stack direction="horizontal" gap="1" align="baseline">
-          <Text size="xs" color="tertiary" style={{ minWidth: "3.2em" }}>Active</Text>
-          <AnimatedBytes bytes={currentOut} suffix="/s" size="sm" minDigits={2} />
-        </Stack>
-        <Stack direction="horizontal" gap="1" align="baseline">
-          <Text size="xs" color="tertiary" style={{ minWidth: "3.2em" }}>Total</Text>
-          <AnimatedBytes bytes={totalOut} size="xs" minDigits={2} />
-        </Stack>
-        <Stack direction="horizontal" gap="1" align="baseline">
-          <Text size="xs" color="tertiary" style={{ minWidth: "3.2em" }}>Speed</Text>
-          <Text size="xs" font="mono" weight="medium">{formatSpeedMbps(uploadMbps)}</Text>
-        </Stack>
-      </Stack>
-      <div style={{ width: 1, background: "var(--color-border-default)", alignSelf: "stretch" }} />
-      <Stack direction="vertical" gap="1" align="start" style={{ flex: 1, marginLeft: "auto" }}>
-        <Stack direction="horizontal" gap="1" align="center">
-          <span style={{ color: "#6366f1" }}><Icon icon={arrowDown} size="sm" /></span>
-          <Text size="xs" color="tertiary" weight="medium">DOWNLOAD</Text>
-        </Stack>
-        <Stack direction="horizontal" gap="1" align="baseline">
-          <Text size="xs" color="tertiary" style={{ minWidth: "3.2em" }}>Active</Text>
-          <AnimatedBytes bytes={currentIn} suffix="/s" size="sm" minDigits={2} />
-        </Stack>
-        <Stack direction="horizontal" gap="1" align="baseline">
-          <Text size="xs" color="tertiary" style={{ minWidth: "3.2em" }}>Total</Text>
-          <AnimatedBytes bytes={totalIn} size="xs" minDigits={2} />
-        </Stack>
-        <Stack direction="horizontal" gap="1" align="baseline">
-          <Text size="xs" color="tertiary" style={{ minWidth: "3.2em" }}>Speed</Text>
-          <Text size="xs" font="mono" weight="medium">{formatSpeedMbps(downloadMbps)}</Text>
-        </Stack>
-      </Stack>
-    </Stack>
+    <BandwidthCard
+      upload={{ activeRate: currentOut, total: totalOut, speedMbps: uploadMbps }}
+      download={{ activeRate: currentIn, total: totalIn, speedMbps: downloadMbps }}
+    />
   );
 }
 
@@ -121,7 +79,7 @@ interface Props {
 
 export function BandwidthChart({ samples }: Props) {
   return (
-    <Stack direction="vertical" gap="3" align="stretch">
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <div className="bandwidth-chart">
         <ResponsiveContainer width="100%" height={96}>
           <AreaChart
@@ -159,7 +117,6 @@ export function BandwidthChart({ samples }: Props) {
           </AreaChart>
         </ResponsiveContainer>
       </div>
-
-    </Stack>
+    </div>
   );
 }

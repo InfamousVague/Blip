@@ -103,56 +103,23 @@ pub async fn start_capture(
             }
         }
 
-        // Layer 3: nettop byte tracking every 8th cycle (~every 2s)
+        // Layer 3: nettop per-connection byte tracking every 8th cycle (~every 2s)
         if lsof_tick % 8 == 0 {
             let flows = snapshot_nettop_flows().await;
             if !flows.is_empty() {
                 let mut state = store.write().unwrap();
-                // Build per-process byte totals from nettop
-                let mut proc_bytes: HashMap<String, (u64, u64)> = HashMap::new();
+                // Match flows directly by dest_ip:dest_port to the correct connection
                 for flow in &flows {
-                    let key = flow.process_name.to_lowercase();
-                    let entry = proc_bytes.entry(key).or_insert((0, 0));
-                    entry.0 += flow.bytes_in;
-                    entry.1 += flow.bytes_out;
-                }
-
-                // Count connections per process (for proportional distribution)
-                let mut proc_conn_count: HashMap<String, usize> = HashMap::new();
-                for conn in state.connections.values() {
-                    if let Some(ref name) = conn.process_name {
-                        let key = name.to_lowercase();
-                        // Match by last segment (e.g., "Chrome" matches "com.google.Chrome")
-                        let short_key = key.rsplit('.').next().unwrap_or(&key).to_string();
-                        *proc_conn_count.entry(short_key).or_insert(0) += 1;
-                    }
-                }
-
-                // Distribute bytes proportionally to matching connections
-                for conn in state.connections.values_mut() {
-                    if !conn.active {
-                        continue;
-                    }
-                    if let Some(ref name) = conn.process_name {
-                        let name_lower = name.to_lowercase();
-                        let short_name = name_lower.rsplit('.').next().unwrap_or(&name_lower).to_string();
-
-                        // Try exact match first, then short name match
-                        let bytes = proc_bytes.get(&name_lower)
-                            .or_else(|| proc_bytes.get(&short_name));
-
-                        if let Some(&(bytes_in, bytes_out)) = bytes {
-                            let conn_count = proc_conn_count.get(&short_name).copied().unwrap_or(1).max(1);
-                            // Distribute evenly across connections for this process
-                            let share_in = bytes_in / conn_count as u64;
-                            let share_out = bytes_out / conn_count as u64;
-                            // Only update if nettop reports more bytes (cumulative)
-                            if share_in > conn.bytes_received {
-                                conn.bytes_received = share_in;
+                    for conn in state.connections.values_mut() {
+                        if conn.dest_ip == flow.dest_ip && conn.dest_port == flow.dest_port {
+                            // nettop reports cumulative bytes — only update if larger
+                            if flow.bytes_in > conn.bytes_received {
+                                conn.bytes_received = flow.bytes_in;
                             }
-                            if share_out > conn.bytes_sent {
-                                conn.bytes_sent = share_out;
+                            if flow.bytes_out > conn.bytes_sent {
+                                conn.bytes_sent = flow.bytes_out;
                             }
+                            break;
                         }
                     }
                 }
@@ -653,9 +620,10 @@ struct FlowBytes {
 async fn snapshot_nettop_flows() -> Vec<FlowBytes> {
     let mut result = Vec::new();
 
-    // Run nettop once (-L 1), no resolving (-n), extended output (-x), per-process
+    // Run nettop once (-L 1), no resolving (-n), extended output (-x)
+    // WITHOUT -P so we get per-connection flows with IP:port, not just per-process totals
     let output = Command::new("nettop")
-        .args(["-P", "-n", "-L", "1", "-x", "-J", "bytes_in,bytes_out"])
+        .args(["-n", "-L", "1", "-x", "-J", "bytes_in,bytes_out"])
         .output()
         .await;
 
@@ -667,47 +635,46 @@ async fn snapshot_nettop_flows() -> Vec<FlowBytes> {
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     for line in stdout.lines() {
-        // Skip headers and empty lines
-        if line.starts_with("time") || line.starts_with(" ") || line.is_empty() {
+        if line.starts_with("time") || line.is_empty() {
             continue;
         }
 
-        // Format varies but typical: "process.pid,  bytes_in,  bytes_out,"
-        // Each row starts with "<process_name>.<pid>" and has comma-separated values
         let parts: Vec<&str> = line.split(',').collect();
-        if parts.len() < 3 {
-            continue;
-        }
+        if parts.len() < 4 { continue; }
 
-        let proc_field = parts[0].trim();
-        let bytes_in: u64 = parts.get(1).and_then(|s| s.trim().parse().ok()).unwrap_or(0);
-        let bytes_out: u64 = parts.get(2).and_then(|s| s.trim().parse().ok()).unwrap_or(0);
+        // nettop per-connection format:
+        //   "time, tcp4 192.168.1.1:12345<->1.2.3.4:443, interface, state, bytes_in, bytes_out, ..."
+        // Process summary format:
+        //   "time, processname.pid, , , bytes_in, bytes_out, ..."
+        let desc = parts[1].trim();
+        if desc.is_empty() { continue; }
 
-        if bytes_in == 0 && bytes_out == 0 {
-            continue;
-        }
+        // Connection lines contain "<->" — these have per-flow bytes
+        if desc.contains("<->") {
+            let bytes_in: u64 = parts.get(4).and_then(|s| s.trim().parse().ok()).unwrap_or(0);
+            let bytes_out: u64 = parts.get(5).and_then(|s| s.trim().parse().ok()).unwrap_or(0);
+            if bytes_in == 0 && bytes_out == 0 { continue; }
 
-        // Extract process name (strip .pid)
-        let process_name = if let Some(dot_pos) = proc_field.rfind('.') {
-            let maybe_pid = &proc_field[dot_pos + 1..];
-            if maybe_pid.chars().all(|c| c.is_ascii_digit()) && !maybe_pid.is_empty() {
-                proc_field[..dot_pos].to_string()
-            } else {
-                proc_field.to_string()
+            // Parse: "tcp4 192.168.1.1:12345<->1.2.3.4:443"
+            // Extract the remote IP:port (after <->)
+            if let Some(arrow_pos) = desc.find("<->") {
+                let remote = &desc[arrow_pos + 3..];
+                // remote is "1.2.3.4:443" or "[::1]:443"
+                if let Some(colon_pos) = remote.rfind(':') {
+                    let ip = &remote[..colon_pos];
+                    let port: u16 = remote[colon_pos + 1..].parse().unwrap_or(0);
+                    if port > 0 {
+                        result.push(FlowBytes {
+                            dest_ip: ip.to_string(),
+                            dest_port: port,
+                            bytes_in,
+                            bytes_out,
+                            process_name: String::new(), // not needed for per-flow matching
+                        });
+                    }
+                }
             }
-        } else {
-            proc_field.to_string()
-        };
-
-        // nettop gives us per-process totals, not per-connection.
-        // We'll distribute to connections by process name.
-        result.push(FlowBytes {
-            dest_ip: String::new(), // per-process, not per-flow
-            dest_port: 0,
-            bytes_in,
-            bytes_out,
-            process_name,
-        });
+        }
     }
 
     result

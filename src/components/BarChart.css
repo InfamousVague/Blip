@@ -1,13 +1,6 @@
 .bar-chart {
-  background: var(--glass-bg-subtle);
-  border: var(--glass-border-width) solid var(--glass-border);
-  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--blip-border-default);
+  border-radius: 14px;
   padding: var(--sp-2);
-}
-
-.bar-chart__legend {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
 }
