@@ -17,6 +17,10 @@
     "core:window:allow-start-dragging",
     "updater:default",
     "process:allow-restart",
-    "process:allow-exit"
+    "process:allow-exit",
+    "notification:default",
+    "notification:allow-request-permission",
+    "notification:allow-notify",
+    "notification:allow-register-listener"
   ]
 }

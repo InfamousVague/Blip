@@ -1,6 +1,6 @@
 /**
- * ConnectionAlertToast — Glass card alert for new firewall connections.
- * Shows app name, destination, and Allow/Block buttons.
+ * ConnectionAlertToast — Glass banner alert for new firewall connections.
+ * Horizontal single-row layout: dot · title · app → dest (proto) [Allow] [Block] [×]
  */
 
 import { FrostedCard } from '../glass';
@@ -33,38 +33,34 @@ export function ConnectionAlertToast({
   style,
 }: ConnectionAlertToastProps) {
   return (
-    <FrostedCard className={`blip-alert-toast ${className}`} padding={16} gap={10} style={style}>
-      {/* Header: warning dot + title + close */}
-      <div className="blip-alert-toast__header">
-        <div className="blip-alert-toast__header-left">
+    <FrostedCard className={`blip-alert-toast ${className}`} padding={14} gap={0} style={style}>
+      <div className="blip-alert-toast__row">
+        <div className="blip-alert-toast__info">
           <span className="blip-alert-toast__dot" />
           <span className="blip-alert-toast__title">New Connection</span>
-        </div>
-        <button
-          className="blip-alert-toast__close"
-          onClick={onDismiss}
-          aria-label="Dismiss"
-          dangerouslySetInnerHTML={{
-            __html: `<svg viewBox="0 0 24 24" width="12" height="12" fill="none">${CLOSE_ICON}</svg>`,
-          }}
-        />
-      </div>
-
-      {/* Content: app name + destination + actions */}
-      <div className="blip-alert-toast__content">
-        <div className="blip-alert-toast__body">
+          <span className="blip-alert-toast__sep">·</span>
           <span className="blip-alert-toast__app">{appName}</span>
-          <span className="blip-alert-toast__dest">{destination} ({protocol})</span>
+          <span className="blip-alert-toast__arrow">→</span>
+          <span className="blip-alert-toast__dest">{destination}</span>
+          <span className="blip-alert-toast__protocol">({protocol})</span>
         </div>
         <div className="blip-alert-toast__actions">
           <button className="blip-alert-toast__btn blip-alert-toast__btn--allow" onClick={onAllow}>
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" dangerouslySetInnerHTML={{ __html: CHECK_ICON }} />
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" dangerouslySetInnerHTML={{ __html: CHECK_ICON }} />
             Allow
           </button>
           <button className="blip-alert-toast__btn blip-alert-toast__btn--block" onClick={onBlock}>
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" dangerouslySetInnerHTML={{ __html: X_ICON }} />
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" dangerouslySetInnerHTML={{ __html: X_ICON }} />
             Block
           </button>
+          <button
+            className="blip-alert-toast__close"
+            onClick={onDismiss}
+            aria-label="Dismiss"
+            dangerouslySetInnerHTML={{
+              __html: `<svg viewBox="0 0 24 24" width="12" height="12" fill="none">${CLOSE_ICON}</svg>`,
+            }}
+          />
         </div>
       </div>
     </FrostedCard>

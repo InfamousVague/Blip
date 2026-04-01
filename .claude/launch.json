@@ -12,6 +12,12 @@
       "runtimeExecutable": "npx",
       "runtimeArgs": ["serve", "tools", "-l", "5174", "--no-clipboard"],
       "port": 5174
+    },
+    {
+      "name": "website",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "website:dev"],
+      "port": 5175
     }
   ]
 }

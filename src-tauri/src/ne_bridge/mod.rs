@@ -11,6 +11,7 @@ use crate::geoip::GeoIp;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::Emitter;
+use tauri_plugin_notification::NotificationExt;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixListener;
 use tokio::sync::broadcast;
@@ -191,6 +192,27 @@ impl NEBridge {
                                                                 "dest_port": conn_event.dest_port,
                                                                 "protocol": &conn_event.protocol,
                                                             }));
+
+                                                            // Dispatch macOS notification
+                                                            let display_name = {
+                                                                let last = app_id.split('.').last().unwrap_or(&app_id);
+                                                                let mut c = last.chars();
+                                                                match c.next() {
+                                                                    None => app_id.clone(),
+                                                                    Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+                                                                }
+                                                            };
+                                                            let _ = app_handle.notification()
+                                                                .builder()
+                                                                .title("New Connection Request")
+                                                                .body(format!(
+                                                                    "{} → {}:{} ({})",
+                                                                    display_name,
+                                                                    conn_event.dest_ip,
+                                                                    conn_event.dest_port,
+                                                                    conn_event.protocol.to_uppercase()
+                                                                ))
+                                                                .show();
                                                         }
                                                     }
                                                 }
@@ -447,15 +469,27 @@ async fn process_ne_flow_update(
     store: &ConnectionStore,
 ) {
     let mut state = store.write().unwrap();
+    // Find matching connection and track its ID for mark_changed
+    let mut matched_id: Option<String> = None;
     for conn in state.connections.values_mut() {
         if conn.dest_ip == flow.dest_ip
             && conn.dest_port == flow.dest_port
             && conn.active
         {
-            // NE reports cumulative bytes — accept directly
-            conn.bytes_received = flow.bytes_in;
-            conn.bytes_sent = flow.bytes_out;
-            conn.last_seen_ms = flow.timestamp_ms;
+            // NE sends cumulative bytes — only update if larger (handles out-of-order delivery)
+            let mut changed = false;
+            if flow.bytes_in > conn.bytes_received {
+                conn.bytes_received = flow.bytes_in;
+                changed = true;
+            }
+            if flow.bytes_out > conn.bytes_sent {
+                conn.bytes_sent = flow.bytes_out;
+                changed = true;
+            }
+            if changed {
+                conn.last_seen_ms = flow.timestamp_ms;
+                matched_id = Some(conn.id.clone());
+            }
 
             // Also update process name from NE if more specific
             if (conn.process_name.is_none() || conn.process_name.as_deref() == Some("?"))
@@ -465,6 +499,10 @@ async fn process_ne_flow_update(
             }
             break;
         }
+    }
+    // Mark changed outside the values_mut iterator to satisfy borrow checker
+    if let Some(id) = matched_id {
+        state.mark_changed(&id);
     }
 }
 

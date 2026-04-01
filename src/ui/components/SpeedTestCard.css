@@ -1,0 +1,152 @@
+.blip-speed {
+  position: relative;
+}
+
+.blip-speed__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.blip-speed__title {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  color: var(--blip-text-tertiary);
+  text-transform: uppercase;
+}
+
+.blip-speed__columns {
+  display: flex;
+  gap: 0;
+}
+
+.blip-speed__col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  transition: opacity 0.2s;
+}
+
+.blip-speed__col--active {
+  opacity: 1;
+}
+
+.blip-speed__divider {
+  width: 1px;
+  background: var(--blip-border-default);
+  align-self: stretch;
+  margin: 0 8px;
+}
+
+.blip-speed__direction {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.blip-speed__arrow {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.blip-speed__dir-label {
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  color: var(--blip-text-tertiary);
+}
+
+.blip-speed__value {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.05em;
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--blip-text-primary);
+  line-height: 1.2;
+}
+
+.blip-speed__decimal {
+  opacity: 0.5;
+  font-size: 14px;
+}
+
+.blip-speed__unit {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--blip-text-tertiary);
+  margin-left: 3px;
+}
+
+.blip-speed__ping {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.blip-speed__ping-label {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  color: var(--blip-text-tertiary);
+}
+
+.blip-speed__ping-value {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--blip-text-primary);
+}
+
+.blip-speed__time {
+  font-family: var(--font-sans);
+  font-size: 10px;
+  color: var(--blip-text-tertiary);
+  margin-left: auto;
+}
+
+.blip-speed__btn {
+  appearance: none;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 4px 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--blip-text-secondary);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  min-width: 52px;
+  text-align: center;
+}
+
+.blip-speed__btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--blip-text-primary);
+}
+
+.blip-speed__btn--testing {
+  pointer-events: none;
+  color: var(--blip-text-tertiary);
+}
+
+/* Progress bar */
+.blip-speed__progress-track {
+  height: 2px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 1px;
+  overflow: hidden;
+}
+
+.blip-speed__progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--blip-download), var(--blip-upload));
+  border-radius: 1px;
+  transition: width 0.8s linear;
+}

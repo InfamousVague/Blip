@@ -17,17 +17,15 @@ export function greatCircleDistance(
   return EARTH_RADIUS_KM * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-/** Map great-circle distance to arc height (0-1 range for deck.gl) */
+/** Map great-circle distance to arc height factor */
 export function arcHeight(distKm: number): number {
-  // Nearly flat arcs — just enough curve to see they're arcs
-  // ~100km → 0.002, ~1000km → 0.004, ~5000km → 0.006, ~15000km → 0.008
+  // ~100km → 0.3, ~1000km → 0.7, ~5000km → 1.1, ~15000km → 1.4
   const t = Math.min(distKm / 20000, 1);
-  return 0.002 + 0.008 * Math.sqrt(t);
+  return 0.2 + 1.3 * Math.sqrt(t);
 }
 
 /**
- * Interpolate points along a quadratic bezier arc in geographic space.
- * Used for the draw-on animation (partial arc rendering).
+ * Interpolate points along a great-circle arc with altitude.
  */
 export function interpolateArc(
   source: [number, number], // [lon, lat]
@@ -44,42 +42,24 @@ export function interpolateArc(
   return points;
 }
 
-/** Single point on a great-circle arc at parameter t (0-1), matching deck.gl's ArcLayer */
+/**
+ * Single point on an arc at parameter t (0-1).
+ * Uses linear interpolation for the lat/lon path (straight line on flat Mercator),
+ * then adds a quadratic Z-altitude envelope that peaks at t=0.5.
+ */
 export function pointOnArc(
   source: [number, number], // [lon, lat]
   target: [number, number],
   height: number,
   t: number
 ): [number, number, number] {
-  // Great-circle interpolation (slerp) to match deck.gl's greatCircle mode
-  const lat1 = source[1] * DEG2RAD;
-  const lon1 = source[0] * DEG2RAD;
-  const lat2 = target[1] * DEG2RAD;
-  const lon2 = target[0] * DEG2RAD;
-
-  const d = 2 * Math.asin(Math.sqrt(
-    Math.sin((lat2 - lat1) / 2) ** 2 +
-    Math.cos(lat1) * Math.cos(lat2) * Math.sin((lon2 - lon1) / 2) ** 2
-  ));
-
-  let lat: number, lon: number;
-  if (d < 1e-6) {
-    // Points are nearly identical — linear interpolation
-    lon = source[0] + (target[0] - source[0]) * t;
-    lat = source[1] + (target[1] - source[1]) * t;
-  } else {
-    const a = Math.sin((1 - t) * d) / Math.sin(d);
-    const b = Math.sin(t * d) / Math.sin(d);
-    const x = a * Math.cos(lat1) * Math.cos(lon1) + b * Math.cos(lat2) * Math.cos(lon2);
-    const y = a * Math.cos(lat1) * Math.sin(lon1) + b * Math.cos(lat2) * Math.sin(lon2);
-    const z = a * Math.sin(lat1) + b * Math.sin(lat2);
-    lat = Math.atan2(z, Math.sqrt(x * x + y * y)) * RAD2DEG;
-    lon = Math.atan2(y, x) * RAD2DEG;
-  }
+  // Linear interpolation — straight line on flat map
+  const lon = source[0] + (target[0] - source[0]) * t;
+  const lat = source[1] + (target[1] - source[1]) * t;
 
   // Quadratic elevation — peaks at t=0.5
-  const elevation = 4 * height * t * (1 - t);
-  const altitudeMeters = elevation * 1_000_000;
+  const bow = 4 * t * (1 - t);
+  const altitudeMeters = bow * height * 1_000_000;
 
   return [lon, lat, altitudeMeters];
 }
@@ -94,7 +74,7 @@ export function calculateBearing(
   const Δλ = (lon2 - lon1) * DEG2RAD;
   const y = Math.sin(Δλ) * Math.cos(φ2);
   const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
-  return Math.atan2(y, x); // radians, -π to π
+  return Math.atan2(y, x);
 }
 
 /** Ease out cubic for smooth draw-on */

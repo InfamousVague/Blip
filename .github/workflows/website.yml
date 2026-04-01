@@ -1,0 +1,61 @@
+name: Deploy Website
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "website/**"
+      - "src/ui/**"
+      - "src/utils/arc-geometry.ts"
+      - "src/map-themes.ts"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: |
+          # Temporarily remove the file: dependency that doesn't exist in CI
+          # The website doesn't import from @mattmattmattmatt/base (uses base-tokens.css instead)
+          node -e "
+            const pkg = require('./package.json');
+            delete pkg.dependencies['@mattmattmattmatt/base'];
+            require('fs').writeFileSync('./package.json', JSON.stringify(pkg, null, 2));
+          "
+          npm install --ignore-scripts --no-package-lock
+
+      - name: Build website
+        run: npm run website:build
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: website/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -38,7 +38,7 @@
     "targets": "all",
     "macOS": {
       "entitlements": "Entitlements.plist",
-      "signingIdentity": "C4F410132A48A802291992B12475312E3CF53124"
+      "signingIdentity": "0948896DC970503ADEF5B5070E0BB3E9D9047757"
     },
     "resources": [
       "resources/*"

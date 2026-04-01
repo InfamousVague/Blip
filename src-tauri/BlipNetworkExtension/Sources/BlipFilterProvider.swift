@@ -25,6 +25,20 @@ class BlipFilterProvider: NEFilterDataProvider {
     private var firewallRules: [String: String] = [:]
     private let firewallRulesLock = NSLock()
 
+    /// Per-flow byte accumulators — keyed by "destIp:destPort"
+    private var flowBytes: [String: FlowByteTracker] = [:]
+    private let flowBytesLock = NSLock()
+    private var flowReportTimer: DispatchSourceTimer?
+
+    struct FlowByteTracker {
+        var bytesIn: UInt64 = 0
+        var bytesOut: UInt64 = 0
+        var sourceAppId: String = "unknown"
+        var destIp: String
+        var destPort: Int
+        var lastReported: UInt64 = 0
+    }
+
     // MARK: - Filter Lifecycle
 
     override func startFilter(completionHandler: @escaping (Error?) -> Void) {
@@ -52,6 +66,7 @@ class BlipFilterProvider: NEFilterDataProvider {
                     self.socketBridge = SocketBridge()
                     self.socketBridge?.delegate = self
                     self.socketBridge?.connect()
+                    self.startFlowReportTimer()
                 }
             }
             completionHandler(error)
@@ -60,6 +75,8 @@ class BlipFilterProvider: NEFilterDataProvider {
 
     override func stopFilter(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {
         os_log("BlipFilter: stopping, reason: %d, total flows: %llu", log: log, type: .info, reason.rawValue, flowCount)
+        flowReportTimer?.cancel()
+        flowReportTimer = nil
         socketBridge?.disconnect()
         socketBridge = nil
         completionHandler()
@@ -164,16 +181,87 @@ class BlipFilterProvider: NEFilterDataProvider {
             self.socketBridge?.send(event: event)
         }
 
-        return .allow()
+        // Return filterDataVerdict to get handleInboundData/handleOutboundData called for byte tracking.
+        // peekInboundBytes/peekOutboundBytes = Int.max means "pass all data through the handlers".
+        // The data handlers immediately return .allow() so data is never delayed.
+        return .filterDataVerdict(withFilterInbound: true, peekInboundBytes: Int.max, filterOutbound: true, peekOutboundBytes: Int.max)
     }
 
-    // Data handlers — return .allow() immediately, no processing
+    // Data handlers — track bytes then return .allow() immediately
     override func handleInboundData(from flow: NEFilterFlow, readBytesStartOffset: Int, readBytes: Data) -> NEFilterDataVerdict {
+        trackBytes(flow: flow, bytesIn: UInt64(readBytes.count), bytesOut: 0)
         return .allow()
     }
 
     override func handleOutboundData(from flow: NEFilterFlow, readBytesStartOffset: Int, readBytes: Data) -> NEFilterDataVerdict {
+        trackBytes(flow: flow, bytesIn: 0, bytesOut: UInt64(readBytes.count))
         return .allow()
+    }
+
+    /// Accumulate bytes for a flow. The timer sends batched updates to the app.
+    private func trackBytes(flow: NEFilterFlow, bytesIn: UInt64, bytesOut: UInt64) {
+        guard let socketFlow = flow as? NEFilterSocketFlow,
+              let remoteEndpoint = socketFlow.remoteEndpoint as? NWHostEndpoint else {
+            return
+        }
+
+        let destIp = remoteEndpoint.hostname
+        let destPort = Int(UInt16(remoteEndpoint.port) ?? 0)
+        let key = "\(destIp):\(destPort)"
+
+        // Resolve app bundle ID
+        var appId = "unknown"
+        if let token = socketFlow.sourceAppAuditToken {
+            appId = bundleIdentifier(from: token) ?? "unknown"
+        }
+
+        flowBytesLock.lock()
+        if var tracker = flowBytes[key] {
+            tracker.bytesIn += bytesIn
+            tracker.bytesOut += bytesOut
+            flowBytes[key] = tracker
+        } else {
+            var tracker = FlowByteTracker(destIp: destIp, destPort: destPort)
+            tracker.bytesIn = bytesIn
+            tracker.bytesOut = bytesOut
+            tracker.sourceAppId = appId
+            flowBytes[key] = tracker
+        }
+        flowBytesLock.unlock()
+    }
+
+    /// Periodically flush accumulated bytes to the main app via socket.
+    private func startFlowReportTimer() {
+        let timer = DispatchSource.makeTimerSource(queue: workQueue)
+        timer.schedule(deadline: .now() + 2.0, repeating: 2.0)
+        timer.setEventHandler { [weak self] in
+            self?.flushFlowUpdates()
+        }
+        timer.resume()
+        flowReportTimer = timer
+    }
+
+    private func flushFlowUpdates() {
+        flowBytesLock.lock()
+        let snapshot = flowBytes
+        // Don't clear — keep cumulative totals. The Rust side uses "only update if larger".
+        flowBytesLock.unlock()
+
+        let ts = UInt64(Date().timeIntervalSince1970 * 1000)
+
+        for (_, tracker) in snapshot {
+            if tracker.bytesIn == 0 && tracker.bytesOut == 0 { continue }
+
+            let update = NEFlowUpdateEvent(
+                destIp: tracker.destIp,
+                destPort: tracker.destPort,
+                sourceAppId: tracker.sourceAppId,
+                bytesIn: tracker.bytesIn,
+                bytesOut: tracker.bytesOut,
+                timestampMs: ts
+            )
+            socketBridge?.send(flowUpdate: update)
+        }
     }
 
     // MARK: - Helpers

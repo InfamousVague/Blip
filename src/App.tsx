@@ -9,12 +9,12 @@ import { minus } from "@mattmattmattmatt/base/primitives/icon/icons/minus";
 import { locateFixed } from "@mattmattmattmatt/base/primitives/icon/icons/locate-fixed";
 import { settings } from "@mattmattmattmatt/base/primitives/icon/icons/settings";
 import { buildAtlasStyle } from "./map-themes";
-import laptopIcon from "./assets/icons/laptop.png";
 import { useNetworkCapture } from "./hooks/useNetworkEvents";
 import { useArcAnimation } from "./hooks/useArcAnimation";
 import type { EndpointData } from "./hooks/useArcAnimation";
 import { NetworkArcLayer } from "./layers/ArcLayer";
 import { EndpointLayer } from "./layers/EndpointLayer";
+import { SubmarineCableLayer } from "./layers/SubmarineCableLayer";
 import { useHeatmapData } from "./layers/HeatmapLayer";
 import { RadarMinimap } from "./components/RadarMinimap";
 import { useSpeedTest } from "./hooks/useSpeedTest";
@@ -34,6 +34,8 @@ import { useFirewallRules } from "./hooks/useFirewallRules";
 import { useFirewallAlerts } from "./hooks/useFirewallAlerts";
 import { useListeningPorts } from "./hooks/useListeningPorts";
 import { FirewallAlertOverlay } from "./components/FirewallAlertToast";
+import { ConnectionRequestModal } from "./components/modals/ConnectionRequestModal";
+import { AlertModal } from "./components/modals/AlertModal";
 import { useAppUpdate } from "./hooks/useAppUpdate";
 import { Topbar } from "./ui/components/Topbar";
 import { SegmentedControl } from "./ui/components/SegmentedControl";
@@ -81,12 +83,12 @@ async function getLocation(forceRefresh = false): Promise<Location> {
 
 function App() {
   const mapRef = useRef<MapRef>(null);
-  const [viewState, setViewState] = useState({ longitude: 0, latitude: 20, zoom: 2, pitch: 45, bearing: -8 });
+  const [viewState, setViewState] = useState({ longitude: 0, latitude: 20, zoom: 2, pitch: 50, bearing: -8 });
   const [location, setLocation] = useState<Location | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedEndpoint, setSelectedEndpoint] = useState<EndpointData | null>(null);
   const [, startTransition] = useTransition();
-  const [sidebarWidth, setSidebarWidth] = useState(340);
+  const [sidebarWidth, setSidebarWidth] = useState(460);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [showSetup, setShowSetup] = useState(false);
   const [showHeatmap, setShowHeatmap] = useState(false);
@@ -96,6 +98,7 @@ function App() {
   const [historicalEndpoints, setHistoricalEndpoints] = useState<HistoricalEndpoint[]>([]);
   const [selfInfo, setSelfInfo] = useState<SelfIpInfo | null>(null);
   const [elevationBanner, setElevationBanner] = useState(false);
+  const [errorModal, setErrorModal] = useState<{ title: string; description: string; detail?: string } | null>(null);
   const mapStyle = useMemo(() => buildAtlasStyle(), []);
   const setupTriggered = useRef(false);
 
@@ -106,7 +109,7 @@ function App() {
     : null;
 
   const { log: dnsLog, stats: dnsStats, blockedAttempts } = useDnsCapture(sidebarTab === "dns");
-  const { arcs, endpoints, particles, blockedMarkers } = useArcAnimation(connections, userPos, dnsStats.blocked_count, blockedAttempts);
+  const { arcs, endpoints, particles, blockedMarkers, activeCableIds, cableServiceLines } = useArcAnimation(connections, userPos, dnsStats.blocked_count, blockedAttempts);
   const bandwidth = useBandwidth(capturing);
   const { apps: firewallApps, setRule: setFirewallRule, mode: firewallMode, setMode: setFirewallMode, deleteRuleById } = useFirewallRules();
   const { serviceSamples, serviceBreakdown, serviceColors } = useServiceBandwidth(connections, bandwidth);
@@ -121,7 +124,7 @@ function App() {
     getLocation()
       .then((loc) => {
         setLocation(loc);
-        setViewState((v) => ({ ...v, longitude: loc.longitude, latitude: loc.latitude, zoom: 4.5, pitch: 45, bearing: -8 }));
+        setViewState((v) => ({ ...v, longitude: loc.longitude, latitude: loc.latitude, zoom: 4.5, pitch: 50, bearing: -8 }));
       })
       .catch((err) => console.warn("Location unavailable:", err));
 
@@ -154,6 +157,9 @@ function App() {
       .catch(() => {});
   }, []); // Run once on mount — do NOT depend on startCapture
 
+  // The first alert in the queue is the active one — no separate state needed
+  const activeAlert = firewallAlerts.length > 0 ? firewallAlerts[0] : null;
+
   // Show setup prompt once, 3s after first connections appear
   useEffect(() => {
     if (setupTriggered.current) return;
@@ -174,7 +180,6 @@ function App() {
     []
   );
 
-  const markerSize = Math.round(48 + (viewState.zoom - 1.5) * (112 / 8.5));
   const zoomIn = () => mapRef.current?.zoomIn({ duration: 200 });
   const zoomOut = () => mapRef.current?.zoomOut({ duration: 200 });
 
@@ -182,7 +187,7 @@ function App() {
     getLocation()
       .then((loc) => {
         setLocation(loc);
-        mapRef.current?.flyTo({ center: [loc.longitude, loc.latitude], zoom: 4.5, pitch: 45, bearing: -8, duration: 1500 });
+        mapRef.current?.flyTo({ center: [loc.longitude, loc.latitude], zoom: 4.5, pitch: 50, bearing: -8, duration: 1500 });
       })
       .catch((err) => console.error("Could not get location:", err));
   };
@@ -323,16 +328,54 @@ function App() {
         style={{ width: "100%", height: "100%" }}
         minZoom={1.5}
         maxZoom={8}
-        maxPitch={70}
+        minPitch={50}
+        maxPitch={50}
         attributionControl={false}
       >
         {location && (
           <Marker longitude={location.longitude} latitude={location.latitude} anchor="center">
-            <img src={laptopIcon} alt="My location" className="laptop-marker" style={{ width: markerSize, height: markerSize }} />
+            <div className="waypoint-marker">
+              <svg viewBox="0 0 40 56" className="waypoint-marker__gem">
+                <defs>
+                  <linearGradient id="gem-fill" x1="20" y1="0" x2="20" y2="56" gradientUnits="userSpaceOnUse">
+                    <stop offset="0%" stopColor="#ffffff" stopOpacity="0.95" />
+                    <stop offset="40%" stopColor="#e0e0ff" stopOpacity="0.7" />
+                    <stop offset="100%" stopColor="#a0a0cc" stopOpacity="0.4" />
+                  </linearGradient>
+                  <linearGradient id="gem-edge" x1="20" y1="0" x2="20" y2="56" gradientUnits="userSpaceOnUse">
+                    <stop offset="0%" stopColor="#ffffff" stopOpacity="1" />
+                    <stop offset="100%" stopColor="#ccccee" stopOpacity="0.6" />
+                  </linearGradient>
+                  <filter id="gem-glow">
+                    <feGaussianBlur stdDeviation="3" result="blur" />
+                    <feMerge>
+                      <feMergeNode in="blur" />
+                      <feMergeNode in="SourceGraphic" />
+                    </feMerge>
+                  </filter>
+                </defs>
+                {/* Bottom spike (long) */}
+                <polygon points="20,56 6,18 20,22" fill="url(#gem-fill)" opacity="0.5" />
+                <polygon points="20,56 34,18 20,22" fill="url(#gem-fill)" opacity="0.35" />
+                {/* Top crown (short) */}
+                <polygon points="20,0 6,18 20,22" fill="url(#gem-fill)" opacity="0.8" />
+                <polygon points="20,0 34,18 20,22" fill="url(#gem-fill)" opacity="0.65" />
+                {/* Left face highlight */}
+                <polygon points="20,0 6,18 20,56" fill="none" stroke="url(#gem-edge)" strokeWidth="0.8" strokeLinejoin="round" />
+                {/* Right face */}
+                <polygon points="20,0 34,18 20,56" fill="none" stroke="url(#gem-edge)" strokeWidth="0.8" strokeLinejoin="round" />
+                {/* Center seam */}
+                <line x1="20" y1="0" x2="20" y2="56" stroke="white" strokeWidth="0.4" opacity="0.3" />
+                {/* Equator line */}
+                <line x1="6" y1="18" x2="34" y2="18" stroke="white" strokeWidth="0.6" opacity="0.5" />
+              </svg>
+              <div className="waypoint-marker__ring" />
+            </div>
           </Marker>
         )}
 
-        <NetworkArcLayer arcs={arcs} particles={particles} blockedMarkers={blockedMarkers} showParticles={showParticles} heatmapData={heatmapData} showHeatmap={showHeatmap} endpoints={endpoints} />
+        <SubmarineCableLayer activeCableIds={activeCableIds} />
+        <NetworkArcLayer arcs={arcs} particles={particles} blockedMarkers={blockedMarkers} showParticles={showParticles} heatmapData={heatmapData} showHeatmap={showHeatmap} endpoints={endpoints} userLocation={userPos} cableServiceLines={cableServiceLines} />
         <EndpointLayer
           endpoints={endpoints}
           zoom={viewState.zoom}
@@ -368,7 +411,7 @@ function App() {
                 size="md"
               />
               {sidebarTab === "network" ? (
-                <GlobalStats connections={connections} totalEver={totalEver} bandwidth={bandwidth} serviceSamples={serviceSamples} serviceBreakdown={serviceBreakdown} serviceColors={serviceColors} downloadMbps={speedTest.downloadMbps} uploadMbps={speedTest.uploadMbps} />
+                <GlobalStats connections={connections} totalEver={totalEver} bandwidth={bandwidth} serviceSamples={serviceSamples} serviceBreakdown={serviceBreakdown} serviceColors={serviceColors} downloadMbps={speedTest.downloadMbps} uploadMbps={speedTest.uploadMbps} pingMs={speedTest.pingMs} speedTesting={speedTest.testing} lastSpeedTestTime={speedTest.lastTestTime} onRunSpeedTest={speedTest.runTest} speedStage={speedTest.stage} liveDownloadMbps={speedTest.liveDownloadMbps} liveUploadMbps={speedTest.liveUploadMbps} speedPercent={speedTest.percent} />
               ) : sidebarTab === "trackers" ? (
                 <TrackerStats visible={sidebarTab === "trackers"} />
               ) : (
@@ -425,7 +468,7 @@ function App() {
       <Settings open={settingsOpen} onClose={() => setSettingsOpen(false)} firewallMode={firewallMode} onFirewallModeChange={setFirewallMode} />
 
       <FirewallAlertOverlay
-        alerts={firewallAlerts}
+        alerts={firewallAlerts.filter((a) => !activeAlert || a.id !== activeAlert.id)}
         onAllow={(alert) => {
           setFirewallRule(alert.appId, alert.appId, "allow");
           dismissFirewallAlert(alert.id);
@@ -437,11 +480,39 @@ function App() {
         onDismiss={dismissFirewallAlert}
       />
 
+      <ConnectionRequestModal
+        alert={activeAlert}
+        queueLength={firewallAlerts.length}
+        onAllow={(alert, remember) => {
+          setFirewallRule(alert.appId, alert.appId, "allow", remember ? { lifetime: "permanent" } : undefined);
+          dismissFirewallAlert(alert.id);
+        }}
+        onDeny={(alert, remember) => {
+          setFirewallRule(alert.appId, alert.appId, "deny", remember ? { lifetime: "permanent" } : undefined);
+          dismissFirewallAlert(alert.id);
+        }}
+        onDismiss={() => {
+          if (activeAlert) dismissFirewallAlert(activeAlert.id);
+        }}
+      />
+
+      {errorModal && (
+        <AlertModal
+          open
+          onClose={() => setErrorModal(null)}
+          variant="error"
+          title={errorModal.title}
+          description={errorModal.description}
+          detail={errorModal.detail}
+        />
+      )}
+
       {showSetup && (
         <SetupPrompt onComplete={() => {
           setShowSetup(false);
         }} />
       )}
+
     </div>
   );
 }

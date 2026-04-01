@@ -1,0 +1,71 @@
+.nav-sentinel {
+  position: absolute;
+  top: 0;
+  height: 10px;
+  width: 100%;
+  pointer-events: none;
+}
+
+.navbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  padding: 0 24px;
+  transition: all 0.3s ease;
+}
+
+.navbar--scrolled {
+  background: rgba(12, 10, 18, 0.7);
+  backdrop-filter: blur(20px) saturate(1.8);
+  -webkit-backdrop-filter: blur(20px) saturate(1.8);
+  border-bottom: 1px solid var(--blip-border-default);
+}
+
+.navbar__inner {
+  max-width: 1100px;
+  margin: 0 auto;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.navbar__brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.navbar__logo {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+}
+
+.navbar__name {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--blip-text-primary);
+  letter-spacing: -0.5px;
+}
+
+.navbar__download {
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 18px;
+  border-radius: 9px;
+  background: var(--blip-purple-solid);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: var(--font-sans);
+  text-decoration: none;
+  transition: all 0.15s;
+}
+
+.navbar__download:hover {
+  background: #9b6ff7;
+  color: #fff;
+}

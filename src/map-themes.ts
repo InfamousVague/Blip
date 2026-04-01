@@ -17,7 +17,7 @@ const DEM_SOURCE = {
 
 const GLYPHS = "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf";
 
-/** Single atlas style — elegant dark map with 3D terrain */
+/** Blip Atlas — elegant dark map with 3D terrain */
 export function buildAtlasStyle(): StyleSpecification {
   return {
     version: 8,
@@ -26,20 +26,20 @@ export function buildAtlasStyle(): StyleSpecification {
     glyphs: GLYPHS,
     terrain: { source: "terrain-dem", exaggeration: 1.5 },
     layers: [
-      // Background (land) — lighter blue-grey so it contrasts with dark water
-      { id: "background", type: "background", paint: { "background-color": "#181a24" } },
+      // Background (land) — grey with a hint of purple
+      { id: "background", type: "background", paint: { "background-color": "#171620" } },
 
-      // Water — coastal/inland (deep dark)
+      // Water — coastal/inland (very dark, subdued)
       {
         id: "water", type: "fill", source: "openmaptiles", "source-layer": "water",
-        paint: { "fill-color": "#06080e" },
+        paint: { "fill-color": "#08070c" },
       },
 
-      // Ocean — open water (very slightly lighter than coastal)
+      // Ocean (near-black, minimal contrast with water)
       {
         id: "water-ocean", type: "fill", source: "openmaptiles", "source-layer": "water",
         filter: ["==", "class", "ocean"],
-        paint: { "fill-color": "#080c14" },
+        paint: { "fill-color": "#0a090e" },
       },
 
       // Hillshade — 3D terrain shading from DEM
@@ -47,31 +47,31 @@ export function buildAtlasStyle(): StyleSpecification {
         id: "hillshade", type: "hillshade", source: "terrain-dem",
         paint: {
           "hillshade-exaggeration": 0.35,
-          "hillshade-shadow-color": "#080a14",
-          "hillshade-highlight-color": "#242838",
-          "hillshade-accent-color": "#101420",
+          "hillshade-shadow-color": "#08070e",
+          "hillshade-highlight-color": "#232030",
+          "hillshade-accent-color": "#10101a",
         },
       },
 
-      // Landcover (forests, vegetation) — slightly different tone on land
+      // Landcover (forests, vegetation)
       {
         id: "landcover", type: "fill", source: "openmaptiles", "source-layer": "landcover",
-        paint: { "fill-color": "#1c1e28", "fill-opacity": 0.5 },
+        paint: { "fill-color": "#1c1a26", "fill-opacity": 0.5 },
       },
 
       // Landuse (urban areas)
       {
         id: "landuse", type: "fill", source: "openmaptiles", "source-layer": "landuse",
-        paint: { "fill-color": "#1a1c26", "fill-opacity": 0.4 },
+        paint: { "fill-color": "#1a1824", "fill-opacity": 0.4 },
       },
 
-      // Coastline — bright edge where land meets water
+      // Coastline — subdued
       {
         id: "coastline", type: "line", source: "openmaptiles", "source-layer": "water",
         paint: {
-          "line-color": "#3a4a70",
+          "line-color": "#2a2840",
           "line-width": ["interpolate", ["linear"], ["zoom"], 0, 0.8, 4, 1.2, 8, 2.0],
-          "line-opacity": 0.7,
+          "line-opacity": 0.3,
         },
       },
 
@@ -79,14 +79,14 @@ export function buildAtlasStyle(): StyleSpecification {
       {
         id: "boundary-country", type: "line", source: "openmaptiles", "source-layer": "boundary",
         filter: ["all", ["==", "admin_level", 2], ["!=", "maritime", 1]],
-        paint: { "line-color": "#3a4060", "line-width": 1.0, "line-opacity": 0.5 },
+        paint: { "line-color": "#3a3858", "line-width": 1.0, "line-opacity": 0.5 },
       },
 
-      // State/province boundaries — bumped up
+      // State/province boundaries — more visible
       {
         id: "boundary-state", type: "line", source: "openmaptiles", "source-layer": "boundary",
         filter: ["==", "admin_level", 4],
-        paint: { "line-color": "#2a3050", "line-width": 0.7, "line-opacity": 0.4, "line-dasharray": [3, 2] },
+        paint: { "line-color": "#403868", "line-width": 0.9, "line-opacity": 0.55, "line-dasharray": [3, 2] },
       },
 
       // Roads
@@ -94,7 +94,7 @@ export function buildAtlasStyle(): StyleSpecification {
         id: "road-highway", type: "line", source: "openmaptiles", "source-layer": "transportation",
         filter: ["==", "class", "motorway"],
         paint: {
-          "line-color": "#242840",
+          "line-color": "#222038",
           "line-width": ["interpolate", ["linear"], ["zoom"], 5, 0.5, 10, 1.5, 14, 3],
           "line-opacity": 0.45,
         },
@@ -104,7 +104,7 @@ export function buildAtlasStyle(): StyleSpecification {
         id: "road-major", type: "line", source: "openmaptiles", "source-layer": "transportation",
         filter: ["in", "class", "trunk", "primary"],
         paint: {
-          "line-color": "#1e2238",
+          "line-color": "#1c1a30",
           "line-width": ["interpolate", ["linear"], ["zoom"], 7, 0.3, 12, 1, 14, 2],
           "line-opacity": 0.35,
         },
@@ -114,7 +114,7 @@ export function buildAtlasStyle(): StyleSpecification {
         id: "road-minor", type: "line", source: "openmaptiles", "source-layer": "transportation",
         filter: ["in", "class", "secondary", "tertiary", "minor"],
         paint: {
-          "line-color": "#1e2238",
+          "line-color": "#1c1a30",
           "line-width": ["interpolate", ["linear"], ["zoom"], 10, 0.2, 14, 1],
           "line-opacity": 0.25,
         },
@@ -124,11 +124,11 @@ export function buildAtlasStyle(): StyleSpecification {
       // Buildings
       {
         id: "building", type: "fill", source: "openmaptiles", "source-layer": "building",
-        paint: { "fill-color": "#1a1e2a", "fill-opacity": 0.5 },
+        paint: { "fill-color": "#1a1826", "fill-opacity": 0.5 },
         minzoom: 13,
       },
 
-      // Labels — country (brighter)
+      // Labels — country
       {
         id: "label-country", type: "symbol", source: "openmaptiles", "source-layer": "place",
         filter: ["==", "class", "country"],
@@ -141,14 +141,14 @@ export function buildAtlasStyle(): StyleSpecification {
           "text-max-width": 8,
         },
         paint: {
-          "text-color": "#6a7aa0",
-          "text-halo-color": "rgba(8,10,18,0.95)",
+          "text-color": "#6a6e90",
+          "text-halo-color": "rgba(10,8,16,0.95)",
           "text-halo-width": 2,
           "text-opacity": 0.75,
         },
       },
 
-      // Labels — city (brighter)
+      // Labels — city
       {
         id: "label-city", type: "symbol", source: "openmaptiles", "source-layer": "place",
         filter: ["==", "class", "city"],
@@ -160,8 +160,8 @@ export function buildAtlasStyle(): StyleSpecification {
           "text-max-width": 8,
         },
         paint: {
-          "text-color": "#5a6a90",
-          "text-halo-color": "rgba(8,10,18,0.95)",
+          "text-color": "#585880",
+          "text-halo-color": "rgba(10,8,16,0.95)",
           "text-halo-width": 1.5,
           "text-opacity": 0.65,
         },
@@ -180,8 +180,8 @@ export function buildAtlasStyle(): StyleSpecification {
           "text-max-width": 8,
         },
         paint: {
-          "text-color": "#4a5a7a",
-          "text-halo-color": "rgba(8,10,18,0.95)",
+          "text-color": "#484868",
+          "text-halo-color": "rgba(10,8,16,0.95)",
           "text-halo-width": 1.2,
           "text-opacity": 0.55,
         },

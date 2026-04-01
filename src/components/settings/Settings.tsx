@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { GlassPanel } from "../../ui/glass/GlassPanel";
+
 import { FrostedCard } from "../../ui/glass/FrostedCard";
 import { Icon } from "@mattmattmattmatt/base/primitives/icon/Icon";
 import { settings as settingsIcon } from "@mattmattmattmatt/base/primitives/icon/icons/settings";
@@ -44,18 +44,12 @@ export function Settings({ open, onClose, firewallMode, onFirewallModeChange }: 
     <div className="settings-backdrop" onClick={onClose}>
       {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
       <div onClick={(e) => e.stopPropagation()}>
-        <GlassPanel
-          className="settings-shell"
-          style={{ flexDirection: "row" }}
-          padding={12}
-          gap={10}
-          borderRadius={20}
-        >
+        <div className="settings-shell">
           <FrostedCard
             className="settings-nav-card"
             gap={2}
             padding={12}
-            style={{ flexShrink: 0 }}
+            style={{ flexShrink: 0, alignSelf: 'stretch' }}
           >
             <span className="settings-nav__title">Settings</span>
             <div style={{ height: 4 }} />
@@ -75,7 +69,7 @@ export function Settings({ open, onClose, firewallMode, onFirewallModeChange }: 
             className="settings-content-card"
             gap={12}
             padding={16}
-            style={{ flex: 1 }}
+            style={{ flex: 1, alignSelf: 'stretch', minHeight: 0 }}
           >
             {activeTab === "general" && (
               <GeneralTab firewallMode={firewallMode} onFirewallModeChange={onFirewallModeChange} />
@@ -88,7 +82,7 @@ export function Settings({ open, onClose, firewallMode, onFirewallModeChange }: 
             {activeTab === "network" && <NetworkTab />}
             {activeTab === "about" && <AboutTab />}
           </FrostedCard>
-        </GlassPanel>
+        </div>
       </div>
     </div>
   );

@@ -14,6 +14,7 @@ import { BandwidthChart, BandwidthHeader } from "./BandwidthChart";
 import { BandwidthBarChart } from "./BarChart";
 import { StreamChart } from "./StreamChart";
 import { TreemapChart } from "./TreemapChart";
+import { SpeedTestCard } from "../ui/components/SpeedTestCard";
 import type { ServiceSamplePoint, ServiceBreakdownEntry } from "../hooks/useServiceBandwidth";
 import type { BandwidthSample } from "../hooks/useBandwidth";
 import { classifyEndpoint, type EndpointType } from "../utils/endpoint-type";
@@ -52,6 +53,7 @@ interface ServiceStat {
   domains: string[];
   bytesSent: number;
   bytesReceived: number;
+  lastSeenMs: number;
 }
 
 interface Props {
@@ -63,6 +65,14 @@ interface Props {
   serviceColors: Record<string, string>;
   downloadMbps?: number;
   uploadMbps?: number;
+  pingMs?: number;
+  speedTesting?: boolean;
+  lastSpeedTestTime?: number;
+  onRunSpeedTest?: () => void;
+  speedStage?: 'idle' | 'ping' | 'download' | 'upload';
+  liveDownloadMbps?: number;
+  liveUploadMbps?: number;
+  speedPercent?: number;
 }
 
 const PAGE_SIZE = 5;
@@ -74,7 +84,7 @@ const CHART_MODES = [
   { value: "treemap", label: "Treemap" },
 ];
 
-export function GlobalStats({ connections, totalEver, bandwidth, serviceSamples, serviceBreakdown, serviceColors, downloadMbps = 0, uploadMbps = 0 }: Props) {
+export function GlobalStats({ connections, totalEver, bandwidth, serviceSamples, serviceBreakdown, serviceColors, downloadMbps = 0, uploadMbps = 0, pingMs = 0, speedTesting = false, lastSpeedTestTime = 0, onRunSpeedTest, speedStage = 'idle', liveDownloadMbps = 0, liveUploadMbps = 0, speedPercent = 0 }: Props) {
   const [showAllServices, setShowAllServices] = useState(false);
   const [chartMode, setChartMode] = useState("bandwidth");
 
@@ -108,16 +118,20 @@ export function GlobalStats({ connections, totalEver, bandwidth, serviceSamples,
     for (const c of connections) {
       const { type, serviceName } = classifyEndpoint(c.domain, c.process_name, c.dest_ip);
       const key = serviceName || type;
-      const existing = byService.get(key) || { type, label: serviceName || TYPE_LABELS[type], count: 0, domains: [], bytesSent: 0, bytesReceived: 0 };
+      const existing = byService.get(key) || { type, label: serviceName || TYPE_LABELS[type], count: 0, domains: [], bytesSent: 0, bytesReceived: 0, lastSeenMs: 0 };
       existing.count += 1;
       existing.bytesSent += c.bytes_sent;
       existing.bytesReceived += c.bytes_received;
+      if (c.last_seen_ms > existing.lastSeenMs) {
+        existing.lastSeenMs = c.last_seen_ms;
+      }
       if (c.domain && !existing.domains.includes(c.domain)) {
         existing.domains.push(c.domain);
       }
       byService.set(key, existing);
     }
-    const services = [...byService.values()].sort((a, b) => (b.bytesSent + b.bytesReceived) - (a.bytesSent + a.bytesReceived));
+    // Sort by most recent traffic first
+    const services = [...byService.values()].sort((a, b) => b.lastSeenMs - a.lastSeenMs);
 
     return { active: active.length, total: connections.length, totalEver, topProcesses, topCountries, services };
   }, [connections, totalEver]);
@@ -174,6 +188,19 @@ export function GlobalStats({ connections, totalEver, bandwidth, serviceSamples,
           style={{ width: "100%" }}
         />
       </FrostedCard>
+
+      <SpeedTestCard
+        downloadMbps={downloadMbps}
+        uploadMbps={uploadMbps}
+        pingMs={pingMs}
+        testing={speedTesting}
+        lastTestTime={lastSpeedTestTime}
+        onRunTest={onRunSpeedTest ?? (() => {})}
+        stage={speedStage}
+        liveDownloadMbps={liveDownloadMbps}
+        liveUploadMbps={liveUploadMbps}
+        percent={speedPercent}
+      />
 
       <CollapsibleSection title="Services" count={stats.services.length}>
         {visibleServices.map((svc, i) => {
