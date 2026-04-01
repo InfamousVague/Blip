@@ -392,7 +392,7 @@ function App() {
         )}
 
         <SubmarineCableLayer activeCableIds={activeCableIds} />
-        <NetworkArcLayer arcs={arcs} particles={particles} blockedMarkers={blockedMarkers} showParticles={showParticles} heatmapData={heatmapData} showHeatmap={showHeatmap} endpoints={endpoints} userLocation={userPos} />
+        <NetworkArcLayer arcs={arcs} particles={particles} blockedMarkers={blockedMarkers} showParticles={showParticles} heatmapData={heatmapData} showHeatmap={showHeatmap} endpoints={endpoints} />
         <EndpointLayer
           endpoints={endpoints}
           zoom={viewState.zoom}

@@ -198,7 +198,6 @@ export function FirewallContent({ apps, onSetRule, onDeleteRuleById, connections
                 bytes={bytes}
                 bytesSent={bytesSent}
                 bytesReceived={bytesRecv}
-                maxBytes={maxBytes}
               />
             );
           })

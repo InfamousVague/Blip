@@ -146,7 +146,12 @@ if [ -d "$DMG_DIR" ]; then
     echo ""
     echo "=== Rebuilding DMG with signed app ==="
     rm -f "$DMG_PATH"
-    hdiutil create -volname "Blip" -srcfolder "$APP_BUNDLE" -ov -format UDZO "$DMG_PATH"
+    # Create staging folder with app + Applications symlink for drag-to-install
+    DMG_STAGE=$(mktemp -d)
+    cp -R "$APP_BUNDLE" "$DMG_STAGE/"
+    ln -s /Applications "$DMG_STAGE/Applications"
+    hdiutil create -volname "Blip" -srcfolder "$DMG_STAGE" -ov -format UDZO "$DMG_PATH"
+    rm -rf "$DMG_STAGE"
     # Sign the DMG
     codesign --force --sign "$IDENTITY" "$DMG_PATH"
     echo "DMG rebuilt and signed: $DMG_PATH"
