@@ -7,7 +7,7 @@ import { Pagination } from "../ui/components/Pagination";
 import { Separator } from "../ui/components/Separator";
 import { CollapsibleSection } from "../ui/components/CollapsibleSection";
 import { FrostedCard } from "../ui/glass";
-import { arrowLeft } from "@mattmattmattmatt/base/primitives/icon/icons/arrow-left";
+import { chevronLeft } from "@mattmattmattmatt/base/primitives/icon/icons/chevron-left";
 import { BandwidthChart, BandwidthHeader } from "./BandwidthChart";
 import type { BandwidthSample } from "../hooks/useBandwidth";
 import type { ResolvedConnection } from "../types/connection";
@@ -77,12 +77,12 @@ export function EndpointDetail({ endpoint, connections, bandwidth, onBack }: Pro
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       {/* Header card — brand colored, inset from sidebar edges */}
-      <FrostedCard style={{ background: rawColor ? `${rawColor}22` : undefined, padding: "16px 14px" }}>
+      <FrostedCard style={{ background: rawColor || "rgba(40, 40, 50, 1)", backdropFilter: "none", WebkitBackdropFilter: "none", border: "none", padding: "16px 14px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <Button variant="ghost" size="sm" icon={arrowLeft} iconOnly onClick={onBack} aria-label="Back" style={{ color: headerText, flexShrink: 0 }} />
-          <div style={{ width: 40, height: 40, borderRadius: 10, overflow: "hidden", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", background: rawColor ? `${rawColor}33` : "rgba(255,255,255,0.06)" }}>
+          <Button variant="ghost" size="lg" icon={chevronLeft} iconOnly onClick={onBack} aria-label="Back" style={{ color: headerText, flexShrink: 0 }} />
+          <div style={{ width: 40, height: 40, borderRadius: 10, overflow: "hidden", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", background: isLight ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.18)" }}>
             {brand ? (
-              <img src={brand.url} alt={brand.brandName} style={{ width: 28, height: 28, objectFit: "contain", filter: isLight ? "brightness(0)" : "brightness(0) invert(1)" }} />
+              <img src={brand.url} alt={brand.brandName} style={{ width: 28, height: 28, objectFit: "contain" }} />
             ) : (
               <img src={ICON_MAP[endpoint.type]} alt={endpoint.type} style={{ width: 24, height: 24, objectFit: "contain" }} />
             )}

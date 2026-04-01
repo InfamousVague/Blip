@@ -135,23 +135,22 @@ export function EndpointLayer({ endpoints, zoom, selectedId, onSelect, userLocat
                   }}
                 />
               )}
-              {/* Glow */}
+              {/* Outer ring */}
               <div
                 style={{
                   position: "absolute",
                   top: "50%",
                   left: "50%",
-                  width: dotSize + 8,
-                  height: dotSize + 8,
+                  width: dotSize + 12,
+                  height: dotSize + 12,
                   borderRadius: "50%",
-                  background: color,
-                  opacity: 0.15,
-                  filter: "blur(6px)",
+                  background: `${color}18`,
+                  border: `1.5px solid ${color}40`,
                   transform: "translate(-50%, -50%)",
                   pointerEvents: "none",
                 }}
               />
-              {/* Dot */}
+              {/* Inner dot */}
               <div
                 style={{
                   position: "absolute",
@@ -161,10 +160,11 @@ export function EndpointLayer({ endpoints, zoom, selectedId, onSelect, userLocat
                   height: dotSize,
                   borderRadius: "50%",
                   background: color,
-                  border: isSelected ? "2px solid white" : `1.5px solid rgba(255,255,255,0.3)`,
+                  border: isSelected ? "2px solid white" : "none",
+                  boxShadow: `0 0 8px ${color}60`,
                   transform: "translate(-50%, -50%)",
                   cursor: "pointer",
-                  transition: "border 0.15s ease",
+                  transition: "border 0.15s ease, box-shadow 0.15s ease",
                 }}
               />
               {/* Label */}

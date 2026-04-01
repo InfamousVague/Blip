@@ -1,0 +1,97 @@
+/* Blip Marketing Website — Global Styles */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--blip-bg-primary);
+  color: var(--blip-text-primary);
+  overflow-x: hidden;
+  line-height: 1.5;
+}
+
+a {
+  color: var(--blip-purple-text);
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--blip-purple-solid);
+}
+
+/* Section spacing */
+.site-section {
+  padding: 80px 24px;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.site-section__title {
+  font-size: 32px;
+  font-weight: var(--weight-bold);
+  text-align: center;
+  margin-bottom: 12px;
+  color: var(--blip-text-primary);
+}
+
+.site-section__subtitle {
+  font-size: 16px;
+  text-align: center;
+  color: var(--blip-text-tertiary);
+  margin-bottom: 48px;
+  max-width: 500px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* Force MapLibre markers above deck.gl canvas */
+.maplibregl-marker {
+  z-index: 3 !important;
+}
+
+/* Floating waypoint gem marker (same as app) */
+.waypoint-marker {
+  position: relative;
+  width: 40px;
+  height: 72px;
+  pointer-events: none;
+  animation: waypoint-float 4s ease-in-out infinite;
+}
+
+.waypoint-marker__gem {
+  width: 40px;
+  height: 56px;
+  filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.5))
+          drop-shadow(0 0 20px rgba(200, 200, 255, 0.3));
+  animation: waypoint-glow 3s ease-in-out infinite;
+}
+
+@keyframes waypoint-float {
+  0%, 100% { transform: translateY(-50px); }
+  50% { transform: translateY(-62px); }
+}
+
+@keyframes waypoint-glow {
+  0%, 100% { filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.4)) drop-shadow(0 0 16px rgba(200, 200, 255, 0.2)); }
+  50% { filter: drop-shadow(0 0 12px rgba(255, 255, 255, 0.7)) drop-shadow(0 0 28px rgba(200, 200, 255, 0.4)); }
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .site-section {
+    padding: 56px 16px;
+  }
+  .site-section__title {
+    font-size: 24px;
+  }
+}

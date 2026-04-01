@@ -1,14 +1,15 @@
-/* Firewall alert overlay — stacks alerts top-right */
+/* Firewall alert overlay — centered banner at top */
 
 .fw-alert-overlay {
   position: fixed;
-  top: 60px;
-  right: var(--sp-4);
+  top: 52px;
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 10000;
   display: flex;
   flex-direction: column;
-  gap: var(--sp-2);
-  max-width: 320px;
+  gap: 8px;
+  width: min(700px, calc(100vw - 48px));
   pointer-events: none;
 }
 

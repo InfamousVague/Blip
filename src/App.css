@@ -22,6 +22,38 @@
   pointer-events: none;
 }
 
+/* Floating waypoint gem marker */
+.waypoint-marker {
+  position: relative;
+  width: 40px;
+  height: 72px;
+  pointer-events: none;
+  animation: waypoint-float 4s ease-in-out infinite;
+}
+
+.waypoint-marker__gem {
+  width: 40px;
+  height: 56px;
+  filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.5))
+          drop-shadow(0 0 20px rgba(200, 200, 255, 0.3));
+  animation: waypoint-glow 3s ease-in-out infinite;
+}
+
+/* Ground ring removed — clean floating gem */
+.waypoint-marker__ring {
+  display: none;
+}
+
+@keyframes waypoint-float {
+  0%, 100% { transform: translateY(-50px); }
+  50% { transform: translateY(-62px); }
+}
+
+@keyframes waypoint-glow {
+  0%, 100% { filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.4)) drop-shadow(0 0 16px rgba(200, 200, 255, 0.2)); }
+  50% { filter: drop-shadow(0 0 12px rgba(255, 255, 255, 0.7)) drop-shadow(0 0 28px rgba(200, 200, 255, 0.4)); }
+}
+
 .elevation-banner {
   position: absolute;
   top: 64px; /* below 52px topbar + 12px gap */
@@ -500,4 +532,5 @@
   box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.06);
   outline: none;
 }
+
 

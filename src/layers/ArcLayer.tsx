@@ -1,9 +1,9 @@
-import { useRef } from "react";
+import { useRef, useMemo } from "react";
 import { useControl } from "react-map-gl/maplibre";
 import { MapboxOverlay } from "@deck.gl/mapbox";
-import { ArcLayer as DeckArcLayer, ScatterplotLayer, TextLayer } from "@deck.gl/layers";
+import { PathLayer, ScatterplotLayer, TextLayer } from "@deck.gl/layers";
 import { HeatmapLayer as DeckHeatmapLayer } from "@deck.gl/aggregation-layers";
-import type { ArcData, ParticleData, BlockedMarkerData, EndpointData } from "../hooks/useArcAnimation";
+import type { ArcData, ParticleData, BlockedMarkerData, EndpointData, CableServiceLine } from "../hooks/useArcAnimation";
 
 export interface HeatmapPoint {
   position: [number, number]; // [lon, lat]
@@ -18,10 +18,12 @@ interface Props {
   heatmapData?: HeatmapPoint[];
   showHeatmap?: boolean;
   endpoints?: EndpointData[];
+  userLocation?: [number, number] | null;
+  cableServiceLines?: CableServiceLine[];
 }
 
 function DeckGLOverlay({ layers }: { layers: any[] }) {
-  const overlay = useControl(() => new MapboxOverlay({ interleaved: false }));
+  const overlay = useControl(() => new MapboxOverlay({ interleaved: true }));
   overlay.setProps({ layers });
   return null;
 }
@@ -31,31 +33,12 @@ function hexToRgb(hex: string): [number, number, number] {
   return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
 }
 
-export function NetworkArcLayer({ arcs, particles = [], blockedMarkers = [], showParticles = false, heatmapData = [], showHeatmap = false, endpoints = [] }: Props) {
+export function NetworkArcLayer({ arcs, particles = [], blockedMarkers = [], showParticles = false, heatmapData = [], showHeatmap = false, endpoints = [], userLocation, cableServiceLines = [] }: Props) {
   const frameCounter = useRef(0);
   frameCounter.current += 1;
 
-  const arcLayer = new DeckArcLayer<ArcData>({
-    id: "network-arcs",
-    data: arcs,
-    getSourcePosition: (d) => d.sourcePosition,
-    getTargetPosition: (d) => d.targetPosition,
-    getSourceColor: (d) => d.sourceColor,
-    getTargetColor: (d) => d.targetColor,
-    getHeight: (d) => d.height,
-    getWidth: (d) => d.width,
-    greatCircle: false,
-    numSegments: 50,
-    widthMinPixels: 1,
-    widthMaxPixels: 4,
-    updateTriggers: {
-      getSourceColor: [arcs.length, frameCounter.current],
-      getTargetColor: [arcs.length, frameCounter.current],
-      getWidth: [arcs.length, frameCounter.current],
-    },
-  });
-
   const layers: unknown[] = [];
+
 
   // Heatmap layer (rendered first = underneath arcs)
   if (showHeatmap && heatmapData.length > 0) {
@@ -108,6 +91,44 @@ export function NetworkArcLayer({ arcs, particles = [], blockedMarkers = [], sho
     layers.push(glowLayer);
   }
 
+  // Service-colored submarine cable lines — stacked per-service
+  if (cableServiceLines.length > 0) {
+    const cableLayer = new PathLayer<CableServiceLine>({
+      id: "cable-service-lines",
+      data: cableServiceLines,
+      getPath: (d) => d.path,
+      getColor: (d) => d.color,
+      getWidth: (d) => d.width,
+      widthUnits: "pixels" as const,
+      widthMinPixels: 1.5,
+      widthMaxPixels: 5,
+      capRounded: true,
+      jointRounded: true,
+      updateTriggers: {
+        getPath: [cableServiceLines.length],
+        getColor: [cableServiceLines.length],
+      },
+    });
+    layers.push(cableLayer);
+  }
+
+  // Network arcs — PathLayer with pre-computed 3D great-circle paths
+  const arcLayer = new PathLayer<ArcData>({
+    id: "network-arcs",
+    data: arcs,
+    getPath: (d) => d.path,
+    getColor: (d) => d.targetColor,
+    getWidth: (d) => d.width,
+    widthUnits: "pixels" as const,
+    widthMinPixels: 1,
+    widthMaxPixels: 4,
+    capRounded: true,
+    jointRounded: true,
+    updateTriggers: {
+      getColor: [arcs.length, frameCounter.current],
+      getWidth: [arcs.length, frameCounter.current],
+    },
+  });
   layers.push(arcLayer);
 
   if (showParticles && particles.length > 0) {

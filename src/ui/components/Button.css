@@ -9,6 +9,16 @@
   font-weight: 500;
   transition: all 0.15s ease;
   white-space: nowrap;
+  position: relative;
+}
+
+/* Transparent click-catcher covering the full button — ensures clicks on
+   child SVG/icon elements always register on the button in WKWebView */
+.blip-btn::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
 }
 
 .blip-btn:active {
@@ -65,6 +75,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  pointer-events: none;
 }
 .blip-btn__icon svg {
   width: 1em;
@@ -73,6 +84,7 @@
   stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
+  pointer-events: none;
 }
 
 /* === Icon Only === */

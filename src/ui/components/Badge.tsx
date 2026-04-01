@@ -48,10 +48,10 @@ export function Badge({
       style={{
         display: 'inline-flex',
         alignItems: 'center',
-        gap: dot ? '4px' : '3px',
-        padding: isSm ? '2px 8px' : '3px 10px',
+        gap: dot ? '4px' : '2px',
+        padding: isSm ? '1px 6px' : '2px 8px',
         borderRadius: '9999px',
-        fontSize: isSm ? '11px' : '12px',
+        fontSize: isSm ? '10px' : '11px',
         fontFamily: 'var(--font-mono)',
         fontWeight: 500,
         lineHeight: 1.3,
@@ -77,7 +77,7 @@ export function Badge({
           className="blip-badge__icon"
           style={{ display: 'flex', alignItems: 'center' }}
           dangerouslySetInnerHTML={{
-            __html: `<svg viewBox="0 0 24 24" width="${isSm ? 10 : 12}" height="${isSm ? 10 : 12}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${icon}</svg>`,
+            __html: `<svg viewBox="0 0 24 24" width="${isSm ? 8 : 10}" height="${isSm ? 8 : 10}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${icon}</svg>`,
           }}
         />
       )}

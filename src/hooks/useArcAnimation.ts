@@ -1,8 +1,9 @@
 import { useRef, useEffect, useState, useMemo } from "react";
 import type { ResolvedConnection, BlockedAttempt } from "../types/connection";
-import { greatCircleDistance, arcHeight, pointOnArc } from "../utils/arc-geometry";
+import { greatCircleDistance, arcHeight, pointOnArc, interpolateArc } from "../utils/arc-geometry";
 import { classifyEndpoint, type EndpointType } from "../utils/endpoint-type";
 import { getServiceColor, hexToRgba } from "../utils/service-colors";
+import { getCachedRoute, buildRoutedPath, pointAlongPath, type CableRoute } from "../utils/cable-routing";
 
 const FADE_DURATION_MS = 15_000;
 const BLOCK_FLASH_MS = 2_000;
@@ -18,6 +19,8 @@ export interface ArcData {
   width: number;
   pingMs: number | null;
   midpoint: [number, number, number];
+  /** Pre-computed 3D path points for PathLayer rendering */
+  path: [number, number, number][];
 }
 
 export interface BlockedMarkerData {
@@ -25,8 +28,16 @@ export interface BlockedMarkerData {
   opacity: number;
 }
 
+/** A colored line segment along a submarine cable, one per service using that cable */
+export interface CableServiceLine {
+  id: string;
+  path: [number, number, number][];
+  color: [number, number, number, number];
+  width: number;
+}
+
 export interface ParticleData {
-  position: [number, number];
+  position: [number, number, number];
   color: [number, number, number, number];
   width: number;
   /** 0 = upload (user→endpoint), 1 = download (endpoint→user), 2 = neutral */
@@ -58,9 +69,12 @@ interface ArcMeta {
   conn: ResolvedConnection;
   target: [number, number];
   height: number;
+  path: [number, number, number][];
   svcName: string;
   svcColor: string;
   classified: ReturnType<typeof classifyEndpoint>;
+  /** If routed through a submarine cable, the cable ID and route info */
+  cableRoute: CableRoute | null;
 }
 
 export function useArcAnimation(
@@ -74,11 +88,15 @@ export function useArcAnimation(
     endpoints: EndpointData[];
     particles: ParticleData[];
     blockedMarkers: BlockedMarkerData[];
+    activeCableIds: string[];
+    cableServiceLines: CableServiceLine[];
   }>({
     arcs: [],
     endpoints: [],
     particles: [],
     blockedMarkers: [],
+    activeCableIds: [],
+    cableServiceLines: [],
   });
   const rafId = useRef(0);
 
@@ -99,13 +117,21 @@ export function useArcAnimation(
       const distKm = greatCircleDistance(userLocation[1], userLocation[0], conn.dest_lat, conn.dest_lon);
       const classified = classifyEndpoint(conn.domain, conn.process_name, conn.dest_ip);
       const svcName = classified.serviceName || classified.type;
+      const h = arcHeight(distKm);
+      // Check if this connection should route through a submarine cable
+      const cableRoute = getCachedRoute(userLocation, target);
+      const path = cableRoute
+        ? buildRoutedPath(userLocation, target, cableRoute)
+        : interpolateArc(userLocation, target, h, 40);
       return {
         conn,
         target,
-        height: arcHeight(distKm),
+        height: h,
+        path,
         svcName,
         svcColor: getServiceColor(svcName),
         classified,
+        cableRoute,
       };
     });
   }, [connections, userLocation]);
@@ -116,10 +142,12 @@ export function useArcAnimation(
     return blockedAttempts.map((attempt) => {
       const target: [number, number] = [attempt.dest_lon, attempt.dest_lat];
       const distKm = greatCircleDistance(userLocation[1], userLocation[0], attempt.dest_lat, attempt.dest_lon);
+      const h = arcHeight(distKm);
       return {
         attempt,
         target,
-        height: arcHeight(distKm),
+        height: h,
+        path: interpolateArc(userLocation, target, h, 40),
       };
     });
   }, [blockedAttempts, userLocation]);
@@ -184,7 +212,7 @@ export function useArcAnimation(
 
       const loc = userLocation;
       if (!loc || arcMetas.length === 0) {
-        setOutput({ arcs: [], endpoints, particles: [], blockedMarkers: [] });
+        setOutput({ arcs: [], endpoints, particles: [], blockedMarkers: [], activeCableIds: [], cableServiceLines: [] });
         return;
       }
 
@@ -255,7 +283,9 @@ export function useArcAnimation(
           targetColor = [255, 255, 255, lineAlpha];
         }
 
-        const midpoint = pointOnArc(loc, meta.target, meta.height, 0.5);
+        const midpoint = meta.cableRoute
+          ? pointAlongPath(meta.path, 0.5)
+          : pointOnArc(loc, meta.target, meta.height, 0.5);
 
         // Add blocked marker at midpoint if flashing
         if (flashStart !== undefined && now - flashStart < BLOCK_FLASH_MS) {
@@ -276,6 +306,7 @@ export function useArcAnimation(
           width,
           pingMs: conn.ping_ms,
           midpoint,
+          path: meta.path,
         });
 
         // Bidirectional particles for active connections — particle count scales with throughput
@@ -295,6 +326,12 @@ export function useArcAnimation(
             // Service-tinted colors: blend service color with upload/download indicator
             const svcRgba = hexToRgba(meta.svcColor, 0.9);
 
+            // Helper: get particle position — use path interpolation for routed, pointOnArc for direct
+            const getParticlePos = (t: number): [number, number, number] =>
+              meta.cableRoute
+                ? pointAlongPath(meta.path, t)
+                : pointOnArc(loc, meta.target, meta.height, t);
+
             // Upload particles: user → endpoint (service color tinted pink)
             if (conn.bytes_sent > 0) {
               const logBytes = Math.log10(Math.max(conn.bytes_sent, 1));
@@ -304,13 +341,13 @@ export function useArcAnimation(
               for (let p = 0; p < upCount; p++) {
                 const pPhase = (phase + p * (1 / upCount)) % 1;
                 const t0 = ((now * 0.001 / cycleSec + pPhase) % 1);
-                const pt = pointOnArc(loc, meta.target, meta.height, t0);
+                const pt = getParticlePos(t0);
                 // Blend service color with pink for upload
                 const r = Math.round(svcRgba[0] * 0.4 + 236 * 0.6);
                 const g = Math.round(svcRgba[1] * 0.4 + 72 * 0.6);
                 const b = Math.round(svcRgba[2] * 0.4 + 153 * 0.6);
                 particles.push({
-                  position: [pt[0], pt[1]],
+                  position: pt,
                   color: [r, g, b, 217],
                   width: particleWidth - p * 0.3, // trailing particles slightly smaller
                   direction: 0,
@@ -327,13 +364,13 @@ export function useArcAnimation(
               for (let p = 0; p < downCount; p++) {
                 const pPhase = (phase + 0.5 + p * (1 / downCount)) % 1;
                 const tDown = ((now * 0.001 / cycleSec + pPhase) % 1);
-                const pt = pointOnArc(loc, meta.target, meta.height, 1 - tDown);
+                const pt = getParticlePos(1 - tDown);
                 // Blend service color with indigo for download
                 const r = Math.round(svcRgba[0] * 0.4 + 99 * 0.6);
                 const g = Math.round(svcRgba[1] * 0.4 + 102 * 0.6);
                 const b = Math.round(svcRgba[2] * 0.4 + 241 * 0.6);
                 particles.push({
-                  position: [pt[0], pt[1]],
+                  position: pt,
                   color: [r, g, b, 217],
                   width: particleWidth - p * 0.3,
                   direction: 1,
@@ -343,9 +380,11 @@ export function useArcAnimation(
           } else {
             // No byte data yet — show a single service-colored particle
             const t0 = ((now * 0.001 / cycleSec + phase) % 1);
-            const pt = pointOnArc(loc, meta.target, meta.height, t0);
+            const pt = meta.cableRoute
+              ? pointAlongPath(meta.path, t0)
+              : pointOnArc(loc, meta.target, meta.height, t0);
             particles.push({
-              position: [pt[0], pt[1]],
+              position: pt,
               color: hexToRgba(meta.svcColor, 0.85),
               width: 2,
               direction: 2,
@@ -375,6 +414,7 @@ export function useArcAnimation(
           width: 2,
           pingMs: null,
           midpoint,
+          path: bm.path,
         });
 
         blockedMarkers.push({
@@ -383,7 +423,60 @@ export function useArcAnimation(
         });
       }
 
-      setOutput({ arcs, endpoints, particles, blockedMarkers });
+      // Collect active cable service lines — grouped by cable, one colored line per service
+      const cableIdSet = new Set<string>();
+      const cableServiceMap = new Map<string, { svcColor: string; svcName: string; segment: [number, number][] }[]>();
+      for (const meta of arcMetas) {
+        if (meta.cableRoute && meta.conn.active) {
+          cableIdSet.add(meta.cableRoute.cableId);
+          const key = meta.cableRoute.cableId;
+          if (!cableServiceMap.has(key)) cableServiceMap.set(key, []);
+          const entries = cableServiceMap.get(key)!;
+          // Deduplicate by service name
+          if (!entries.some((e) => e.svcName === meta.svcName)) {
+            entries.push({
+              svcColor: meta.svcColor,
+              svcName: meta.svcName,
+              segment: meta.cableRoute.cableSegment,
+            });
+          }
+        }
+      }
+      const activeCableIds = [...cableIdSet];
+
+      // Build cable service lines with perpendicular offsets for stacking
+      const cableServiceLines: CableServiceLine[] = [];
+      for (const [cableId, services] of cableServiceMap) {
+        const count = services.length;
+        for (let si = 0; si < count; si++) {
+          const { svcColor, svcName, segment } = services[si];
+          const offsetMag = count > 1 ? (si - (count - 1) / 2) * 0.12 : 0;
+          const rgb = hexToRgba(svcColor, 0.85);
+          const path: [number, number, number][] = segment.map((coord, idx) => {
+            if (offsetMag === 0) return [coord[0], coord[1], 60_000] as [number, number, number];
+            // Compute perpendicular offset from cable direction
+            const prev = segment[Math.max(0, idx - 1)];
+            const next = segment[Math.min(segment.length - 1, idx + 1)];
+            const dx = next[0] - prev[0];
+            const dy = next[1] - prev[1];
+            const len = Math.sqrt(dx * dx + dy * dy) || 1;
+            // Perpendicular: rotate 90° (-dy, dx) normalized
+            return [
+              coord[0] + (-dy / len) * offsetMag,
+              coord[1] + (dx / len) * offsetMag,
+              60_000,
+            ] as [number, number, number];
+          });
+          cableServiceLines.push({
+            id: `${cableId}-${svcName}`,
+            path,
+            color: [rgb[0], rgb[1], rgb[2], 200],
+            width: count > 3 ? 2 : 3,
+          });
+        }
+      }
+
+      setOutput({ arcs, endpoints, particles, blockedMarkers, activeCableIds, cableServiceLines });
     };
 
     rafId.current = requestAnimationFrame(animate);

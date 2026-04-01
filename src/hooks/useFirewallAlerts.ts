@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { onAction } from "@tauri-apps/plugin-notification";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 export interface FirewallAlert {
   id: string;
@@ -39,6 +41,16 @@ export function useFirewallAlerts(mode: string) {
       clearTimeout(timer);
       timersRef.current.delete(id);
     }
+  }, []);
+
+  // Focus window when user clicks a macOS notification
+  useEffect(() => {
+    const listenerPromise = onAction(() => {
+      const win = getCurrentWindow();
+      win.show();
+      win.setFocus();
+    });
+    return () => { listenerPromise.then((l) => l.unregister()); };
   }, []);
 
   useEffect(() => {

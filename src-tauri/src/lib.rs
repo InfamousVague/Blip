@@ -45,6 +45,7 @@ struct AppState {
     dns_capture: Arc<tokio::sync::Mutex<Option<DnsCaptureManager>>>,
     geoip: Arc<StdRwLock<Option<Arc<GeoIp>>>>,
     speed_test_result: Arc<Mutex<Option<speedtest::SpeedTestResult>>>,
+    speed_test_running: Arc<std::sync::atomic::AtomicBool>,
 }
 
 /// Returns current interface byte counters (cumulative)
@@ -244,9 +245,7 @@ fn start_capture(app: tauri::AppHandle, state: tauri::State<AppState>) {
         // Start blocklist auto-updater (checks every 6 hours)
         {
             let bl = blocklists.clone();
-            let db = db_writer.clone(); // we need the db, not db_writer
-            // We can't access db directly here, so use a separate approach
-            // The updater needs the Database, not DbWriter
+            let _db = db_writer.clone();
             tokio::spawn(async move {
                 // Wait 60s before first check to let app finish loading
                 tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
@@ -1052,8 +1051,15 @@ async fn get_dns_stats(state: tauri::State<'_, AppState>) -> Result<DnsStats, St
 // ---- Speed test commands ----
 
 #[tauri::command]
-async fn run_speed_test(state: tauri::State<'_, AppState>) -> Result<speedtest::SpeedTestResult, String> {
-    let result = speedtest::run_speed_test().await?;
+async fn run_speed_test(app_handle: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Result<speedtest::SpeedTestResult, String> {
+    // Prevent concurrent speed tests — two tests would both emit progress events
+    // to the same channel, causing the UI to jump between their values.
+    if state.speed_test_running.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return Err("Speed test already running".into());
+    }
+    let result = speedtest::run_speed_test(app_handle).await;
+    state.speed_test_running.store(false, std::sync::atomic::Ordering::SeqCst);
+    let result = result?;
     let mut cached = state.speed_test_result.lock().unwrap();
     *cached = Some(result.clone());
     Ok(result)
@@ -1948,6 +1954,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_geolocation::init())
+        .plugin(tauri_plugin_notification::init())
         .manage(AppState {
             running: Arc::new(AtomicBool::new(false)),
             elevated: Arc::new(AtomicBool::new(false)),
@@ -1961,6 +1968,7 @@ pub fn run() {
             dns_capture: Arc::new(tokio::sync::Mutex::new(None)),
             geoip: Arc::new(StdRwLock::new(None)),
             speed_test_result: Arc::new(Mutex::new(None)),
+            speed_test_running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         })
         .invoke_handler(tauri::generate_handler![
             start_capture,

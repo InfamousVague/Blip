@@ -108,20 +108,30 @@ pub async fn start_capture(
             let flows = snapshot_nettop_flows().await;
             if !flows.is_empty() {
                 let mut state = store.write().unwrap();
+                let mut changed_ids: Vec<String> = Vec::new();
                 // Match flows directly by dest_ip:dest_port to the correct connection
                 for flow in &flows {
                     for conn in state.connections.values_mut() {
                         if conn.dest_ip == flow.dest_ip && conn.dest_port == flow.dest_port {
+                            let mut updated = false;
                             // nettop reports cumulative bytes — only update if larger
                             if flow.bytes_in > conn.bytes_received {
                                 conn.bytes_received = flow.bytes_in;
+                                updated = true;
                             }
                             if flow.bytes_out > conn.bytes_sent {
                                 conn.bytes_sent = flow.bytes_out;
+                                updated = true;
+                            }
+                            if updated {
+                                changed_ids.push(conn.id.clone());
                             }
                             break;
                         }
                     }
+                }
+                for id in changed_ids {
+                    state.mark_changed(&id);
                 }
             }
         }
@@ -611,7 +621,7 @@ struct FlowBytes {
     dest_port: u16,
     bytes_in: u64,
     bytes_out: u64,
-    process_name: String,
+    _process_name: String,
 }
 
 /// Snapshot per-flow byte counters using `nettop -P -n -L 1 -x -k interface,state,rx_dups,rx_ooo,re-tx,rtt_avg,rcvsize,tx_window,tc_class,tc_mgt,cc_algo,P,C,R,W,arch`.
@@ -634,25 +644,26 @@ async fn snapshot_nettop_flows() -> Vec<FlowBytes> {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
+    // nettop -J bytes_in,bytes_out output format (comma-separated):
+    //   Header:  ",bytes_in,bytes_out,"
+    //   Process: "processname.pid,12345,67890,"
+    //   Flow:    "tcp4 192.168.1.1:12345<->1.2.3.4:443,12345,67890,"
+    // Columns: description(0), bytes_in(1), bytes_out(2)
     for line in stdout.lines() {
-        if line.starts_with("time") || line.is_empty() {
-            continue;
+        if line.is_empty() || line.starts_with(',') {
+            continue; // skip header line ",bytes_in,bytes_out,"
         }
 
         let parts: Vec<&str> = line.split(',').collect();
-        if parts.len() < 4 { continue; }
+        if parts.len() < 3 { continue; }
 
-        // nettop per-connection format:
-        //   "time, tcp4 192.168.1.1:12345<->1.2.3.4:443, interface, state, bytes_in, bytes_out, ..."
-        // Process summary format:
-        //   "time, processname.pid, , , bytes_in, bytes_out, ..."
-        let desc = parts[1].trim();
+        let desc = parts[0].trim();
         if desc.is_empty() { continue; }
 
         // Connection lines contain "<->" — these have per-flow bytes
         if desc.contains("<->") {
-            let bytes_in: u64 = parts.get(4).and_then(|s| s.trim().parse().ok()).unwrap_or(0);
-            let bytes_out: u64 = parts.get(5).and_then(|s| s.trim().parse().ok()).unwrap_or(0);
+            let bytes_in: u64 = parts.get(1).and_then(|s| s.trim().parse().ok()).unwrap_or(0);
+            let bytes_out: u64 = parts.get(2).and_then(|s| s.trim().parse().ok()).unwrap_or(0);
             if bytes_in == 0 && bytes_out == 0 { continue; }
 
             // Parse: "tcp4 192.168.1.1:12345<->1.2.3.4:443"
@@ -669,7 +680,7 @@ async fn snapshot_nettop_flows() -> Vec<FlowBytes> {
                             dest_port: port,
                             bytes_in,
                             bytes_out,
-                            process_name: String::new(), // not needed for per-flow matching
+                            _process_name: String::new(),
                         });
                     }
                 }

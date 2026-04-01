@@ -43,17 +43,38 @@ struct NEDnsEvent: Codable {
     }
 }
 
+/// Per-flow byte update sent to the main app.
+struct NEFlowUpdateEvent: Codable {
+    let destIp: String
+    let destPort: Int
+    let sourceAppId: String
+    let bytesIn: UInt64
+    let bytesOut: UInt64
+    let timestampMs: UInt64
+
+    enum CodingKeys: String, CodingKey {
+        case destIp = "dest_ip"
+        case destPort = "dest_port"
+        case sourceAppId = "source_app_id"
+        case bytesIn = "bytes_in"
+        case bytesOut = "bytes_out"
+        case timestampMs = "timestamp_ms"
+    }
+}
+
 /// Wrapper enum for typed events over the socket.
 /// The Rust side distinguishes by the "type" field.
 struct NEEvent: Codable {
     let type_: String
     let connection: NEConnectionEvent?
     let dns: NEDnsEvent?
+    let flow_update: NEFlowUpdateEvent?
 
     enum CodingKeys: String, CodingKey {
         case type_ = "type"
         case connection
         case dns
+        case flow_update
     }
 }
 
@@ -138,12 +159,17 @@ class SocketBridge {
     }
 
     func send(event: NEConnectionEvent) {
-        let wrapped = NEEvent(type_: "connection", connection: event, dns: nil)
+        let wrapped = NEEvent(type_: "connection", connection: event, dns: nil, flow_update: nil)
         sendRaw(wrapped)
     }
 
     func send(dnsEvent: NEDnsEvent) {
-        let wrapped = NEEvent(type_: "dns", connection: nil, dns: dnsEvent)
+        let wrapped = NEEvent(type_: "dns", connection: nil, dns: dnsEvent, flow_update: nil)
+        sendRaw(wrapped)
+    }
+
+    func send(flowUpdate: NEFlowUpdateEvent) {
+        let wrapped = NEEvent(type_: "flow_update", connection: nil, dns: nil, flow_update: flowUpdate)
         sendRaw(wrapped)
     }
 
