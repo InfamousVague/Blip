@@ -11,7 +11,7 @@ import { MapboxOverlay } from "@deck.gl/mapbox";
 import { PathLayer, ScatterplotLayer } from "@deck.gl/layers";
 import { useControl } from "react-map-gl/maplibre";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { buildAtlasStyle } from "@blip/map-themes";
+import { buildWebsiteMapStyle } from "../map-style";
 import { interpolateArc, pointOnArc, greatCircleDistance, arcHeight } from "@blip/utils/arc-geometry";
 import { USER_LOCATION, DEMO_ENDPOINTS, type DemoEndpoint } from "../data/demo-connections";
 
@@ -55,7 +55,7 @@ export function HeroMap() {
   const mapRef = useRef<MapRef>(null);
   const rafId = useRef(0);
   const [frameCount, setFrameCount] = useState(0);
-  const mapStyle = useMemo(() => buildAtlasStyle(), []);
+  const mapStyle = useMemo(() => buildWebsiteMapStyle(), []);
 
   // Pre-compute arc paths
   const arcMetas = useMemo<ArcMeta[]>(() => {
