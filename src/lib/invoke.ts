@@ -31,6 +31,6 @@ export class Channel<T = unknown> {
 /**
  * No-op checkPermissions shim — permissions are handled natively.
  */
-export async function checkPermissions(_plugin?: string): Promise<Record<string, string>> {
+export async function checkPermissions(): Promise<Record<string, string>> {
   return { location: "granted" };
 }

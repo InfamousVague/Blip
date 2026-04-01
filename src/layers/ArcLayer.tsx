@@ -1,4 +1,4 @@
-import { useRef, useMemo } from "react";
+import { useRef } from "react";
 import { useControl } from "react-map-gl/maplibre";
 import { MapboxOverlay } from "@deck.gl/mapbox";
 import { PathLayer, ScatterplotLayer, TextLayer } from "@deck.gl/layers";
@@ -23,7 +23,6 @@ interface Props {
   heatmapData?: HeatmapPoint[];
   showHeatmap?: boolean;
   endpoints?: EndpointData[];
-  userLocation?: [number, number] | null;
 }
 
 function DeckGLOverlay({ layers }: { layers: any[] }) {
@@ -37,7 +36,7 @@ function hexToRgb(hex: string): [number, number, number] {
   return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
 }
 
-export function NetworkArcLayer({ arcs, particles = [], blockedMarkers = [], showParticles = false, heatmapData = [], showHeatmap = false, endpoints = [], userLocation }: Props) {
+export function NetworkArcLayer({ arcs, particles = [], blockedMarkers = [], showParticles = false, heatmapData = [], showHeatmap = false, endpoints = [] }: Props) {
   const frameCounter = useRef(0);
   frameCounter.current += 1;
 

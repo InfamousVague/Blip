@@ -4,9 +4,7 @@ import { Separator } from "../../ui/components/Separator";
 import { Button } from "../../ui/components/Button";
 import { Toggle } from "../../ui/components/Toggle";
 import { SegmentedControl } from "../../ui/components/SegmentedControl";
-import { Icon } from "@mattmattmattmatt/base/primitives/icon/Icon";
 import { refreshCw } from "@mattmattmattmatt/base/primitives/icon/icons/refresh-cw";
-import "@mattmattmattmatt/base/primitives/icon/icon.css";
 
 interface DiagnosticItem {
   name: string;

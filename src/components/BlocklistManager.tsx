@@ -7,7 +7,6 @@ import { Badge } from "../ui/components/Badge";
 import { Separator } from "../ui/components/Separator";
 import { ScrollArea } from "@mattmattmattmatt/base/primitives/scroll-area/ScrollArea";
 import { FileUploadZone } from "@mattmattmattmatt/base/primitives/file-upload-zone/FileUploadZone";
-import { Icon } from "@mattmattmattmatt/base/primitives/icon/Icon";
 import { plus } from "@mattmattmattmatt/base/primitives/icon/icons/plus";
 import { trash2 } from "@mattmattmattmatt/base/primitives/icon/icons/trash-2";
 import { download } from "@mattmattmattmatt/base/primitives/icon/icons/download";

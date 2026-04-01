@@ -165,7 +165,7 @@ export function RadarMinimap({ endpoints, userLocation }: Props) {
 
           // How far (in radians) the sweep has traveled PAST this dot
           const dotAngle = Math.atan2(dotY - CENTER, dotX - CENTER);
-          let trail = ((sweepCanvasAngle - dotAngle) % TWO_PI + TWO_PI) % TWO_PI;
+          const trail = ((sweepCanvasAngle - dotAngle) % TWO_PI + TWO_PI) % TWO_PI;
 
           // Fade: bright at 0 (just swept), fades to 0 at ~95% of full revolution
           const fadeProgress = trail / (TWO_PI * 0.95);

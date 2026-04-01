@@ -1,46 +1,8 @@
 import { AreaChart, Area, ResponsiveContainer, XAxis, YAxis } from "recharts";
-import { NumberRoll } from "@mattmattmattmatt/base/primitives/number-roll/NumberRoll";
-import "@mattmattmattmatt/base/primitives/number-roll/number-roll.css";
 import { BandwidthCard } from "../ui/components/BandwidthCard";
 import type { BandwidthSample } from "../hooks/useBandwidth";
 import "./BandwidthChart.css";
 
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return "0 B";
-  const k = 1024;
-  const sizes = ["B", "KB", "MB", "GB"];
-  const i = Math.floor(Math.log(Math.max(bytes, 1)) / Math.log(k));
-  return `${(bytes / k ** i).toFixed(1)} ${sizes[Math.min(i, sizes.length - 1)]}`;
-}
-
-function formatRate(bytesPerSec: number): string {
-  return `${formatBytes(bytesPerSec)}/s`;
-}
-
-/** Split bytes into { whole, decimal, unit } for animated rendering */
-function splitBytes(bytes: number): { whole: number; decimal: number; unit: string } {
-  if (bytes === 0) return { whole: 0, decimal: 0, unit: "B" };
-  const k = 1024;
-  const sizes = ["B", "KB", "MB", "GB"];
-  const i = Math.floor(Math.log(Math.max(bytes, 1)) / Math.log(k));
-  const val = bytes / k ** i;
-  const unit = sizes[Math.min(i, sizes.length - 1)];
-  return { whole: Math.floor(val), decimal: Math.floor((val % 1) * 10), unit };
-}
-
-/** Animated byte display: "0,234.5 MB" with rolling digits */
-function AnimatedBytes({ bytes, suffix, size, minDigits = 3 }: { bytes: number; suffix?: string; size: "sm" | "xs"; minDigits?: number }) {
-  const { whole, decimal, unit } = splitBytes(bytes);
-  const fontSize = size === "sm" ? "var(--text-sm-size)" : "var(--text-xs-size)";
-  return (
-    <span style={{ display: "inline-flex", alignItems: "baseline", gap: "0.1em", fontFamily: "var(--font-mono)", fontWeight: "var(--weight-medium)", fontSize: fontSize }}>
-      <NumberRoll value={whole} minDigits={minDigits} duration={300} commas dimLeadingZeros />
-      <span style={{ opacity: 0.5 }}>.</span>
-      <NumberRoll value={decimal} minDigits={1} duration={300} dimLeadingZeros={false} />
-      <span style={{ marginLeft: "0.25em", display: "inline-block", minWidth: "2.5em" }}>{unit}{suffix}</span>
-    </span>
-  );
-}
 
 interface HeaderProps {
   samples: BandwidthSample[];
@@ -48,14 +10,6 @@ interface HeaderProps {
   totalOut: number;
   uploadMbps?: number;
   downloadMbps?: number;
-}
-
-function formatSpeedMbps(mbps: number): string {
-  if (mbps <= 0) return "—";
-  if (mbps >= 1000) return `${(mbps / 1000).toFixed(1)} Gbps`;
-  if (mbps >= 100) return `${Math.round(mbps)} Mbps`;
-  if (mbps >= 1) return `${mbps.toFixed(1)} Mbps`;
-  return `${(mbps * 1000).toFixed(0)} Kbps`;
 }
 
 /** Standalone upload/download header — always visible regardless of chart mode */
