@@ -9,6 +9,7 @@ import { minus } from "@mattmattmattmatt/base/primitives/icon/icons/minus";
 import { locateFixed } from "@mattmattmattmatt/base/primitives/icon/icons/locate-fixed";
 import { settings } from "@mattmattmattmatt/base/primitives/icon/icons/settings";
 import { buildAtlasStyle } from "./map-themes";
+import { registerOfflineProtocols } from "./utils/offline-tiles";
 import { useNetworkCapture } from "./hooks/useNetworkEvents";
 import { useArcAnimation } from "./hooks/useArcAnimation";
 import type { EndpointData } from "./hooks/useArcAnimation";
@@ -42,12 +43,17 @@ import { SegmentedControl } from "./ui/components/SegmentedControl";
 import { UpdateBanner } from "./ui/components/UpdateBanner";
 import { flame } from "@mattmattmattmatt/base/primitives/icon/icons/flame";
 import { sparkles } from "@mattmattmattmatt/base/primitives/icon/icons/sparkles";
+import { panelRightClose } from "@mattmattmattmatt/base/primitives/icon/icons/panel-right-close";
+import { panelRightOpen } from "@mattmattmattmatt/base/primitives/icon/icons/panel-right-open";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { HistoricalEndpoint, SelfIpInfo } from "./types/connection";
 import "./App.css";
 
 type Location = { longitude: number; latitude: number; source: string; ip?: string };
+
+// Register offline tile protocols before any Map component renders
+registerOfflineProtocols();
 
 let cachedLocation: Location | null = null;
 
@@ -94,6 +100,7 @@ function App() {
   const [showHeatmap, setShowHeatmap] = useState(false);
   const [showParticles, setShowParticles] = useState(true);
   const [mode, setMode] = useState<"network" | "firewall" | "ports">("network");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarTab, setSidebarTab] = useState<"network" | "trackers" | "dns">("network");
   const [historicalEndpoints, setHistoricalEndpoints] = useState<HistoricalEndpoint[]>([]);
   const [selfInfo, setSelfInfo] = useState<SelfIpInfo | null>(null);
@@ -109,7 +116,7 @@ function App() {
     : null;
 
   const { log: dnsLog, stats: dnsStats, blockedAttempts } = useDnsCapture(sidebarTab === "dns");
-  const { arcs, endpoints, particles, blockedMarkers, activeCableIds, cableServiceLines } = useArcAnimation(connections, userPos, dnsStats.blocked_count, blockedAttempts);
+  const { arcs, endpoints, particles, blockedMarkers, activeCableIds } = useArcAnimation(connections, userPos, dnsStats.blocked_count, blockedAttempts);
   const bandwidth = useBandwidth(capturing);
   const { apps: firewallApps, setRule: setFirewallRule, mode: firewallMode, setMode: setFirewallMode, deleteRuleById } = useFirewallRules();
   const { serviceSamples, serviceBreakdown, serviceColors } = useServiceBandwidth(connections, bandwidth);
@@ -304,6 +311,16 @@ function App() {
         coordinates={location ? `${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}` : undefined}
         mode={mode}
         onModeChange={(v) => setMode(v as "network" | "firewall" | "ports")}
+        trailing={
+          <Button
+            variant="ghost"
+            size="md"
+            icon={sidebarCollapsed ? panelRightOpen : panelRightClose}
+            iconOnly
+            aria-label={sidebarCollapsed ? "Show sidebar" : "Hide sidebar"}
+            onClick={() => setSidebarCollapsed((v) => !v)}
+          />
+        }
         onMouseDown={() => getCurrentWindow().startDragging()}
       />
 
@@ -375,7 +392,7 @@ function App() {
         )}
 
         <SubmarineCableLayer activeCableIds={activeCableIds} />
-        <NetworkArcLayer arcs={arcs} particles={particles} blockedMarkers={blockedMarkers} showParticles={showParticles} heatmapData={heatmapData} showHeatmap={showHeatmap} endpoints={endpoints} userLocation={userPos} cableServiceLines={cableServiceLines} />
+        <NetworkArcLayer arcs={arcs} particles={particles} blockedMarkers={blockedMarkers} showParticles={showParticles} heatmapData={heatmapData} showHeatmap={showHeatmap} endpoints={endpoints} userLocation={userPos} />
         <EndpointLayer
           endpoints={endpoints}
           zoom={viewState.zoom}
@@ -389,6 +406,7 @@ function App() {
 
       <Sidebar
         mode={mode}
+        collapsed={sidebarCollapsed}
         onWidthChange={setSidebarWidth}
         networkContent={
           selectedEndpoint ? (

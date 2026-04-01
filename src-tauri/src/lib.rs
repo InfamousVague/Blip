@@ -1189,17 +1189,50 @@ async fn kill_process(pid: u32) -> Result<bool, String> {
     .map_err(|e| format!("Task error: {}", e))?
 }
 
+// --- Offline tile serving ---
+
+use std::io::Cursor;
+use std::collections::HashMap;
+
+struct TileReaderState {
+    readers: std::sync::Mutex<HashMap<String, Vec<u8>>>,
+}
+
+fn get_pmtiles_data(app: &tauri::AppHandle) -> &TileReaderState {
+    app.state::<TileReaderState>().inner()
+}
+
 #[tauri::command]
-fn get_hybrid_tile(z: u32, x: u32, y: u32) -> Result<String, String> {
-    // Look in ~/.blip/hybrid-tiles/ (not bundled — too many files for app bundle)
-    let home = dirs::home_dir().ok_or("No home dir")?;
-    let tile_path = home.join(".blip").join("hybrid-tiles")
-        .join(z.to_string()).join(x.to_string()).join(format!("{}.jpg", y));
-    if tile_path.exists() {
-        let data = std::fs::read(&tile_path).map_err(|e| e.to_string())?;
+fn get_offline_tile(app: tauri::AppHandle, source: String, z: u32, x: u32, y: u32) -> Result<String, String> {
+    let state = get_pmtiles_data(&app);
+    let readers = state.readers.lock().map_err(|e| e.to_string())?;
+
+    let pmtiles_data = readers.get(&source).ok_or_else(|| format!("Unknown tile source: {}", source))?;
+
+    let mut cursor = Cursor::new(pmtiles_data.as_slice());
+    let pm = pmtiles2::PMTiles::from_reader(&mut cursor).map_err(|e| format!("PMTiles read error: {}", e))?;
+
+    let tile_id = pmtiles2::util::tile_id(z as u64, x as u64, y as u64);
+    match pm.get_tile(tile_id) {
+        Ok(data) => Ok(base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &data)),
+        Err(_) => Err("Tile not found".to_string()),
+    }
+}
+
+#[tauri::command]
+fn get_offline_glyph(app: tauri::AppHandle, fontstack: String, range: String) -> Result<String, String> {
+    let resource_path = app.path().resource_dir()
+        .map_err(|e| e.to_string())?
+        .join("resources")
+        .join("fonts")
+        .join(&fontstack)
+        .join(format!("{}.pbf", range));
+
+    if resource_path.exists() {
+        let data = std::fs::read(&resource_path).map_err(|e| e.to_string())?;
         Ok(base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &data))
     } else {
-        Err("Tile not found".to_string())
+        Err(format!("Glyph not found: {}/{}", fontstack, range))
     }
 }
 
@@ -1955,6 +1988,9 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_geolocation::init())
         .plugin(tauri_plugin_notification::init())
+        .manage(TileReaderState {
+            readers: std::sync::Mutex::new(HashMap::new()),
+        })
         .manage(AppState {
             running: Arc::new(AtomicBool::new(false)),
             elevated: Arc::new(AtomicBool::new(false)),
@@ -1998,7 +2034,7 @@ pub fn run() {
             run_speed_test,
             get_last_speed_test,
             update_dock_icon,
-            get_hybrid_tile,
+
             activate_network_extension,
             deactivate_network_extension,
             get_network_extension_status,
@@ -2016,10 +2052,36 @@ pub fn run() {
             kill_process,
             show_main_window,
             reset_preferences,
-            clear_history
+            clear_history,
+            get_offline_tile,
+            get_offline_glyph
         ])
         .setup(|app| {
             eprintln!("[BOOT] Setup starting...");
+
+            // Load bundled PMTiles for offline map support
+            let res_dir = app.path().resource_dir()
+                .expect("failed to resolve resource dir")
+                .join("resources");
+
+            let tile_state: tauri::State<TileReaderState> = app.state();
+            let mut readers = tile_state.readers.lock().unwrap();
+            for name in ["planet"] {
+                let path = res_dir.join(format!("{}.pmtiles", name));
+                if path.exists() {
+                    match std::fs::read(&path) {
+                        Ok(data) => {
+                            eprintln!("[BOOT] Loaded {}.pmtiles ({:.1} MB)", name, data.len() as f64 / 1_048_576.0);
+                            readers.insert(name.to_string(), data);
+                        }
+                        Err(e) => eprintln!("[BOOT] Failed to load {}.pmtiles: {}", name, e),
+                    }
+                } else {
+                    eprintln!("[BOOT] {}.pmtiles not found at {:?} — offline tiles unavailable", name, path);
+                }
+            }
+            drop(readers);
+
             // Always log to a fixed file path + stdout
             let log_path = std::path::PathBuf::from("/tmp/blip-debug.log");
             // Clear previous log

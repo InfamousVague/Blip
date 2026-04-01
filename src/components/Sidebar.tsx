@@ -11,10 +11,11 @@ interface SidebarProps {
   networkContent: ReactNode;
   firewallContent: ReactNode;
   portsContent?: ReactNode;
+  collapsed?: boolean;
   onWidthChange?: (width: number) => void;
 }
 
-export function Sidebar({ mode, networkContent, firewallContent, portsContent, onWidthChange }: SidebarProps) {
+export function Sidebar({ mode, networkContent, firewallContent, portsContent, collapsed = false, onWidthChange }: SidebarProps) {
   const [width, setWidth] = useState(DEFAULT_WIDTH);
   const dragging = useRef(false);
   const startX = useRef(0);
@@ -57,7 +58,7 @@ export function Sidebar({ mode, networkContent, firewallContent, portsContent, o
     <>
       {/* Network sidebar */}
       <div
-        className={`sidebar ${mode === "network" ? "sidebar--active" : "sidebar--hidden"}`}
+        className={`sidebar ${!collapsed && mode === "network" ? "sidebar--active" : "sidebar--hidden"}`}
         style={{ width }}
       >
         <div className="sidebar__resize-handle" onMouseDown={onMouseDown} />
@@ -68,7 +69,7 @@ export function Sidebar({ mode, networkContent, firewallContent, portsContent, o
 
       {/* Firewall sidebar */}
       <div
-        className={`sidebar ${mode === "firewall" ? "sidebar--active" : "sidebar--hidden"}`}
+        className={`sidebar ${!collapsed && mode === "firewall" ? "sidebar--active" : "sidebar--hidden"}`}
         style={{ width }}
       >
         <div className="sidebar__resize-handle" onMouseDown={onMouseDown} />
@@ -79,7 +80,7 @@ export function Sidebar({ mode, networkContent, firewallContent, portsContent, o
 
       {/* Ports sidebar */}
       <div
-        className={`sidebar ${mode === "ports" ? "sidebar--active" : "sidebar--hidden"}`}
+        className={`sidebar ${!collapsed && mode === "ports" ? "sidebar--active" : "sidebar--hidden"}`}
         style={{ width }}
       >
         <div className="sidebar__resize-handle" onMouseDown={onMouseDown} />

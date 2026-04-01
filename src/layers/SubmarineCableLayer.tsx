@@ -11,7 +11,7 @@ const LANDING_LAYER = "cable-landing-points-layer";
 
 // Muted indigo that blends with the dark ocean
 const CABLE_COLOR = "#3a3878";
-const CABLE_HIGHLIGHT = "#6a7aef";
+const CABLE_HIGHLIGHT = "#8b9cf5";
 const LANDING_COLOR = "#4a4898";
 
 interface Props {
@@ -43,9 +43,9 @@ function addCableLayers(m: maplibregl.Map) {
       filter: ["in", "id", ""], // empty filter — nothing glows by default
       paint: {
         "line-color": CABLE_HIGHLIGHT,
-        "line-width": 4,
-        "line-opacity": 0.25,
-        "line-blur": 6,
+        "line-width": 6,
+        "line-opacity": 0.3,
+        "line-blur": 8,
       },
     },
     "coastline",
@@ -155,7 +155,7 @@ export function SubmarineCableLayer({ activeCableIds, visible = true }: Props) {
       m.setPaintProperty(CABLE_LINE_LAYER, "line-opacity", [
         "case",
         ["in", ["get", "id"], ["literal", activeCableIds]],
-        0.6,
+        0.7,
         0.25,
       ]);
       m.setPaintProperty(CABLE_LINE_LAYER, "line-width", [

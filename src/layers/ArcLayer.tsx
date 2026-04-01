@@ -2,8 +2,13 @@ import { useRef, useMemo } from "react";
 import { useControl } from "react-map-gl/maplibre";
 import { MapboxOverlay } from "@deck.gl/mapbox";
 import { PathLayer, ScatterplotLayer, TextLayer } from "@deck.gl/layers";
+import { SimpleMeshLayer } from "@deck.gl/mesh-layers";
+import { SphereGeometry } from "@luma.gl/engine";
 import { HeatmapLayer as DeckHeatmapLayer } from "@deck.gl/aggregation-layers";
-import type { ArcData, ParticleData, BlockedMarkerData, EndpointData, CableServiceLine } from "../hooks/useArcAnimation";
+import type { ArcData, ParticleData, BlockedMarkerData, EndpointData } from "../hooks/useArcAnimation";
+
+// Shared sphere mesh — created once, reused across renders
+const sphereMesh = new SphereGeometry({ radius: 1, nlat: 12, nlong: 12 });
 
 export interface HeatmapPoint {
   position: [number, number]; // [lon, lat]
@@ -19,7 +24,6 @@ interface Props {
   showHeatmap?: boolean;
   endpoints?: EndpointData[];
   userLocation?: [number, number] | null;
-  cableServiceLines?: CableServiceLine[];
 }
 
 function DeckGLOverlay({ layers }: { layers: any[] }) {
@@ -33,7 +37,7 @@ function hexToRgb(hex: string): [number, number, number] {
   return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
 }
 
-export function NetworkArcLayer({ arcs, particles = [], blockedMarkers = [], showParticles = false, heatmapData = [], showHeatmap = false, endpoints = [], userLocation, cableServiceLines = [] }: Props) {
+export function NetworkArcLayer({ arcs, particles = [], blockedMarkers = [], showParticles = false, heatmapData = [], showHeatmap = false, endpoints = [], userLocation }: Props) {
   const frameCounter = useRef(0);
   frameCounter.current += 1;
 
@@ -91,27 +95,6 @@ export function NetworkArcLayer({ arcs, particles = [], blockedMarkers = [], sho
     layers.push(glowLayer);
   }
 
-  // Service-colored submarine cable lines — stacked per-service
-  if (cableServiceLines.length > 0) {
-    const cableLayer = new PathLayer<CableServiceLine>({
-      id: "cable-service-lines",
-      data: cableServiceLines,
-      getPath: (d) => d.path,
-      getColor: (d) => d.color,
-      getWidth: (d) => d.width,
-      widthUnits: "pixels" as const,
-      widthMinPixels: 1.5,
-      widthMaxPixels: 5,
-      capRounded: true,
-      jointRounded: true,
-      updateTriggers: {
-        getPath: [cableServiceLines.length],
-        getColor: [cableServiceLines.length],
-      },
-    });
-    layers.push(cableLayer);
-  }
-
   // Network arcs — PathLayer with pre-computed 3D great-circle paths
   const arcLayer = new PathLayer<ArcData>({
     id: "network-arcs",
@@ -132,19 +115,18 @@ export function NetworkArcLayer({ arcs, particles = [], blockedMarkers = [], sho
   layers.push(arcLayer);
 
   if (showParticles && particles.length > 0) {
-    const particleLayer = new ScatterplotLayer<ParticleData>({
+    const particleLayer = new SimpleMeshLayer<ParticleData>({
       id: "network-particles",
       data: particles,
+      mesh: sphereMesh,
       getPosition: (d) => d.position,
-      getFillColor: (d) => d.color as [number, number, number, number],
-      getRadius: (d) => d.width * 300,
-      radiusMinPixels: 2,
-      radiusMaxPixels: 5,
-      opacity: 1,
-      parameters: { depthTest: false } as any,
+      getColor: (d) => d.color as [number, number, number, number],
+      getScale: (d) => [d.width * 600, d.width * 600, d.width * 600],
+      sizeScale: 1,
       updateTriggers: {
         getPosition: [frameCounter.current],
-        getFillColor: [particles.length],
+        getColor: [particles.length],
+        getScale: [particles.length],
       },
     });
 
