@@ -28,13 +28,6 @@ export interface BlockedMarkerData {
   opacity: number;
 }
 
-/** A colored line segment along a submarine cable, one per service using that cable */
-export interface CableServiceLine {
-  id: string;
-  path: [number, number, number][];
-  color: [number, number, number, number];
-  width: number;
-}
 
 export interface ParticleData {
   position: [number, number, number];
@@ -89,14 +82,12 @@ export function useArcAnimation(
     particles: ParticleData[];
     blockedMarkers: BlockedMarkerData[];
     activeCableIds: string[];
-    cableServiceLines: CableServiceLine[];
   }>({
     arcs: [],
     endpoints: [],
     particles: [],
     blockedMarkers: [],
     activeCableIds: [],
-    cableServiceLines: [],
   });
   const rafId = useRef(0);
 
@@ -212,7 +203,7 @@ export function useArcAnimation(
 
       const loc = userLocation;
       if (!loc || arcMetas.length === 0) {
-        setOutput({ arcs: [], endpoints, particles: [], blockedMarkers: [], activeCableIds: [], cableServiceLines: [] });
+        setOutput({ arcs: [], endpoints, particles: [], blockedMarkers: [], activeCableIds: [] });
         return;
       }
 
@@ -423,60 +414,16 @@ export function useArcAnimation(
         });
       }
 
-      // Collect active cable service lines — grouped by cable, one colored line per service
+      // Collect active cable IDs from routed connections
       const cableIdSet = new Set<string>();
-      const cableServiceMap = new Map<string, { svcColor: string; svcName: string; segment: [number, number][] }[]>();
       for (const meta of arcMetas) {
         if (meta.cableRoute && meta.conn.active) {
           cableIdSet.add(meta.cableRoute.cableId);
-          const key = meta.cableRoute.cableId;
-          if (!cableServiceMap.has(key)) cableServiceMap.set(key, []);
-          const entries = cableServiceMap.get(key)!;
-          // Deduplicate by service name
-          if (!entries.some((e) => e.svcName === meta.svcName)) {
-            entries.push({
-              svcColor: meta.svcColor,
-              svcName: meta.svcName,
-              segment: meta.cableRoute.cableSegment,
-            });
-          }
         }
       }
       const activeCableIds = [...cableIdSet];
 
-      // Build cable service lines with perpendicular offsets for stacking
-      const cableServiceLines: CableServiceLine[] = [];
-      for (const [cableId, services] of cableServiceMap) {
-        const count = services.length;
-        for (let si = 0; si < count; si++) {
-          const { svcColor, svcName, segment } = services[si];
-          const offsetMag = count > 1 ? (si - (count - 1) / 2) * 0.12 : 0;
-          const rgb = hexToRgba(svcColor, 0.85);
-          const path: [number, number, number][] = segment.map((coord, idx) => {
-            if (offsetMag === 0) return [coord[0], coord[1], 60_000] as [number, number, number];
-            // Compute perpendicular offset from cable direction
-            const prev = segment[Math.max(0, idx - 1)];
-            const next = segment[Math.min(segment.length - 1, idx + 1)];
-            const dx = next[0] - prev[0];
-            const dy = next[1] - prev[1];
-            const len = Math.sqrt(dx * dx + dy * dy) || 1;
-            // Perpendicular: rotate 90° (-dy, dx) normalized
-            return [
-              coord[0] + (-dy / len) * offsetMag,
-              coord[1] + (dx / len) * offsetMag,
-              60_000,
-            ] as [number, number, number];
-          });
-          cableServiceLines.push({
-            id: `${cableId}-${svcName}`,
-            path,
-            color: [rgb[0], rgb[1], rgb[2], 200],
-            width: count > 3 ? 2 : 3,
-          });
-        }
-      }
-
-      setOutput({ arcs, endpoints, particles, blockedMarkers, activeCableIds, cableServiceLines });
+      setOutput({ arcs, endpoints, particles, blockedMarkers, activeCableIds });
     };
 
     rafId.current = requestAnimationFrame(animate);

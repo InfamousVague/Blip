@@ -3,7 +3,9 @@ import type { StyleSpecification } from "maplibre-gl";
 const VECTOR_SOURCE = {
   openmaptiles: {
     type: "vector" as const,
-    url: "https://tiles.openfreemap.org/planet",
+    tiles: ["blip-tiles://planet/{z}/{x}/{y}"],
+    minzoom: 0,
+    maxzoom: 14,
   },
 };
 
@@ -15,7 +17,7 @@ const DEM_SOURCE = {
   },
 };
 
-const GLYPHS = "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf";
+const GLYPHS = "blip-fonts://{fontstack}/{range}.pbf";
 
 /** Blip Atlas — elegant dark map with 3D terrain */
 export function buildAtlasStyle(): StyleSpecification {

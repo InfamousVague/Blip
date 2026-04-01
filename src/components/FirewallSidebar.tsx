@@ -157,17 +157,18 @@ export function FirewallContent({ apps, onSetRule, onDeleteRuleById, connections
         onClear={() => { setSearch(""); setPage(1); }}
       />
 
+      <SegmentedControl
+        options={[
+          { value: "all", label: "All" },
+          { value: "allow", label: "Allow" },
+          { value: "deny", label: "Deny" },
+        ]}
+        value={filter}
+        onChange={(v) => { setFilter(v as StatusFilter); setPage(1); }}
+        size="md"
+      />
+
       <FrostedCard gap={8} className="fw-sidebar__list">
-        <SegmentedControl
-          options={[
-            { value: "all", label: "All" },
-            { value: "allow", label: "Allow" },
-            { value: "deny", label: "Deny" },
-          ]}
-          value={filter}
-          onChange={(v) => { setFilter(v as StatusFilter); setPage(1); }}
-          size="sm"
-        />
         {visible.length === 0 ? (
           <div className="fw-sidebar__empty">
             <span style={{ color: "var(--blip-text-tertiary)", fontSize: 12 }}>

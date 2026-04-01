@@ -15,6 +15,8 @@ interface TopbarProps {
   mode: string;
   onModeChange: (mode: string) => void;
   modeOptions?: { value: string; label: string }[];
+  /** Optional element rendered to the right of the mode switcher */
+  trailing?: React.ReactNode;
   className?: string;
   style?: CSSProperties;
   onMouseDown?: () => void;
@@ -34,6 +36,7 @@ export function Topbar({
   mode,
   onModeChange,
   modeOptions = DEFAULT_MODES,
+  trailing,
   className = '',
   style,
   onMouseDown,
@@ -61,14 +64,17 @@ export function Topbar({
         )}
       </div>
 
-      {/* Right: Mode switcher */}
-      <div className="blip-topbar__switcher">
-        <SegmentedControl
-          options={modeOptions}
-          value={mode}
-          onChange={onModeChange}
-          size="sm"
-        />
+      {/* Right: Mode switcher + optional trailing action */}
+      <div className="blip-topbar__right">
+        <div className="blip-topbar__switcher">
+          <SegmentedControl
+            options={modeOptions}
+            value={mode}
+            onChange={onModeChange}
+            size="sm"
+          />
+        </div>
+        {trailing}
       </div>
     </div>
   );

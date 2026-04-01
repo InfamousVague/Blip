@@ -129,7 +129,7 @@ export function findCableRoute(
 // --- Path building ---
 
 /** Low altitude for submarine cable segments — just above sea level */
-const CABLE_ALTITUDE = 50_000; // 50km — visible but hugs the surface
+const CABLE_ALTITUDE = 20_000; // 20km — just above the surface, below the arcs
 
 /**
  * Build a routed 3D path: source → cable entry → cable → cable exit → destination

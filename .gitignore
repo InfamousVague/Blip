@@ -35,3 +35,8 @@ dist-ssr
 *.provisionprofile
 src-tauri/target/
 blip-core/target/
+
+# Large offline map assets (downloaded at build time)
+src-tauri/resources/planet.pmtiles
+src-tauri/resources/fonts/
+src-tauri/resources/hybrid-tiles/

@@ -74,13 +74,20 @@
   color: var(--blip-text-tertiary);
 }
 
-/* Right: Frosted mode switcher */
+/* Right: Mode switcher + sidebar toggle */
+.blip-topbar__right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+  flex-shrink: 0;
+}
+
 .blip-topbar__switcher {
   padding: 3px;
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.06);
-  -webkit-app-region: no-drag;
-  app-region: no-drag;
   flex-shrink: 0;
 }
