@@ -47,9 +47,9 @@ export function SetupPrompt({ onComplete }: Props) {
           if (parsed.status === "active") {
             setNeAlreadyActive(true);
           }
-        } catch {}
+        } catch { /* ignore parse errors */ }
       })
-      .catch(() => {});
+      .catch(() => { /* ignore */ });
   }, []);
 
   const handleEnable = async () => {
@@ -64,7 +64,7 @@ export function SetupPrompt({ onComplete }: Props) {
           setLoading(false);
           return;
         }
-      } catch {}
+      } catch { /* ignore parse errors */ }
       localStorage.setItem("blip-setup-dismissed", "permanent");
       onComplete(true);
     } catch (e) {

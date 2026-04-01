@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState } from "react";
-import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties } from "react";
 
 interface ScrollTextProps {
   children: string;

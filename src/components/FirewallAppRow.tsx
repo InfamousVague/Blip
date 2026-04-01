@@ -25,7 +25,6 @@ interface Props {
   bytes?: number;
   bytesSent?: number;
   bytesReceived?: number;
-  maxBytes?: number;
 }
 
 function formatBytes(bytes: number): string {
@@ -70,7 +69,7 @@ const LIFETIME_OPTIONS = [
   { value: "timed", label: "1 Hour" },
 ];
 
-export function FirewallAppRow({ app, displayName, expanded, onToggleExpand, onSetAction, onAddScopedRule, onDeleteRuleById, bytes = 0, bytesSent = 0, bytesReceived = 0, maxBytes = 0 }: Props) {
+export function FirewallAppRow({ app, displayName, expanded, onToggleExpand, onSetAction, onAddScopedRule, onDeleteRuleById, bytes = 0, bytesSent = 0, bytesReceived = 0 }: Props) {
   const isApple = app.is_apple_signed;
   const [showAddRule, setShowAddRule] = useState(false);
   const [newDomain, setNewDomain] = useState("");

@@ -30,7 +30,7 @@ async function getRemoteTileUrl(): Promise<string | null> {
  */
 export function registerOfflineProtocols() {
   // Vector tile protocol: tries local PMTiles first, falls back to remote
-  maplibregl.addProtocol("blip-tiles", async (params, _abortController) => {
+  maplibregl.addProtocol("blip-tiles", async (params) => {
     // URL format: blip-tiles://source/z/x/y (e.g. blip-tiles://planet/4/8/5)
     const parts = params.url.replace("blip-tiles://", "").split("/");
     const source = parts[0];
@@ -69,7 +69,7 @@ export function registerOfflineProtocols() {
   });
 
   // Glyph protocol: tries local bundled fonts first, falls back to remote
-  maplibregl.addProtocol("blip-fonts", async (params, _abortController) => {
+  maplibregl.addProtocol("blip-fonts", async (params) => {
     // URL format: blip-fonts://fontstack/range.pbf
     const path = params.url.replace("blip-fonts://", "");
     const slashIdx = path.indexOf("/");

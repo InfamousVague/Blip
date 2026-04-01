@@ -2,7 +2,7 @@
  * UpdateBanner — Purple gradient bar for OTA update notifications.
  */
 
-import type { CSSProperties, ReactNode } from 'react';
+import type { CSSProperties } from 'react';
 import './UpdateBanner.css';
 
 interface UpdateBannerProps {

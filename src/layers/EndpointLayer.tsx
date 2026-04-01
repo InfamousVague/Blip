@@ -58,7 +58,7 @@ export function EndpointLayer({ endpoints, zoom, selectedId, onSelect, userLocat
         const normBearing = ((bearing % TWO_PI) + TWO_PI) % TWO_PI;
 
         // Check if sweep just passed this endpoint (within ~15°)
-        let trail = ((sweepAngle - normBearing) % TWO_PI + TWO_PI) % TWO_PI;
+        const trail = ((sweepAngle - normBearing) % TWO_PI + TWO_PI) % TWO_PI;
         if (trail < 0.25) {
           currentlySwept.add(ep.id);
           if (!lastSweptRef.current.has(ep.id)) {

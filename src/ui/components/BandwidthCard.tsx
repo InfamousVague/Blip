@@ -4,8 +4,6 @@
  */
 
 import { FrostedCard } from '../glass';
-import { NumberRoll } from '@mattmattmattmatt/base/primitives/number-roll/NumberRoll';
-import '@mattmattmattmatt/base/primitives/number-roll/number-roll.css';
 import type { CSSProperties } from 'react';
 import './BandwidthCard.css';
 

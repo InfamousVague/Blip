@@ -218,7 +218,7 @@ function App() {
   const autoZoomTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Track manual user interaction (pan/zoom) to pause auto-zoom
-  const onMoveStart = useCallback((evt: any) => {
+  const onMoveStart = useCallback((evt: { originalEvent?: unknown }) => {
     // Only count as user interaction if it originated from user input (not flyTo)
     if (evt.originalEvent) {
       userInteractedAt.current = Date.now();

@@ -1,5 +1,4 @@
 const DEG2RAD = Math.PI / 180;
-const RAD2DEG = 180 / Math.PI;
 const EARTH_RADIUS_KM = 6371;
 
 /** Haversine great-circle distance in km */
