@@ -39,10 +39,7 @@ jobs:
         run: npm ci
 
       - name: Skip tsc for CI build
-        run: |
-          # The base library's .tsx files fail tsc in CI because react types aren't
-          # in their resolution path. Vite/esbuild compiles fine without tsc.
-          npm pkg set scripts.build="vite build"
+        run: npm pkg set scripts.build="vite build"
 
       - name: Import Apple certificate
         env:
@@ -57,38 +54,51 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k actions build.keychain
           rm certificate.p12
 
-      - name: Build Network Extension
-        run: cd src-tauri && bash scripts/build-ne.sh
-
-      - name: Sign helper binaries for notarization
+      - name: Build NE + Tauri app
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
-          # Helper binaries must be signed with hardened runtime + timestamp
-          # before Tauri bundles them, otherwise Apple notarization rejects them
-          for bin in src-tauri/resources/blip-dns-helper src-tauri/resources/blip-ne-manager src-tauri/resources/libblip_ne_bridge.dylib; do
-            if [ -f "$bin" ]; then
-              codesign --force --options runtime --timestamp \
-                --sign "$APPLE_SIGNING_IDENTITY" "$bin"
-              echo "Signed: $bin"
-            fi
-          done
+          # Build Network Extension
+          cd src-tauri && bash scripts/build-ne.sh && cd ..
+          # Build Tauri (compiles Rust + frontend, creates .app bundle + DMG)
+          npm run tauri build
 
-      - name: Build Tauri app and create release
-        uses: tauri-apps/tauri-action@v0
+      - name: Post-build (embed NE + profiles, re-sign, rebuild DMG)
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          # Write .env.apple so post-build.sh can source it
+          echo "APPLE_SIGNING_IDENTITY=\"$APPLE_SIGNING_IDENTITY\"" > .env.apple
+          # Run the same post-build script used by `make sign`
+          cd src-tauri && bash scripts/post-build.sh
+
+      - name: Notarize and staple
+        env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "Blip ${{ github.ref_name }}"
-          releaseBody: "See the assets to download and install this version."
-          releaseDraft: false
-          prerelease: false
+        run: |
+          DMG=$(find src-tauri/target/release/bundle/dmg -name "*.dmg" | head -1)
+          echo "Notarizing: $DMG"
+          xcrun notarytool submit "$DMG" \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_PASSWORD" \
+            --wait
+          xcrun stapler staple "$DMG"
+          echo "Notarized and stapled: $DMG"
+
+      - name: Create GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          DMG=$(find src-tauri/target/release/bundle/dmg -name "*.dmg" | head -1)
+          TAG="${GITHUB_REF_NAME}"
+          # Delete existing release if re-running
+          gh release delete "$TAG" --yes 2>/dev/null || true
+          gh release create "$TAG" \
+            "$DMG" \
+            --title "Blip $TAG" \
+            --notes "See the assets to download and install this version." \
+            --latest
+          echo "Released: $TAG with $DMG"
