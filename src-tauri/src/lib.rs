@@ -1210,12 +1210,12 @@ fn get_offline_tile(app: tauri::AppHandle, source: String, z: u32, x: u32, y: u3
     let pmtiles_data = readers.get(&source).ok_or_else(|| format!("Unknown tile source: {}", source))?;
 
     let mut cursor = Cursor::new(pmtiles_data.as_slice());
-    let pm = pmtiles2::PMTiles::from_reader(&mut cursor).map_err(|e| format!("PMTiles read error: {}", e))?;
+    let mut pm = pmtiles2::PMTiles::from_reader(&mut cursor).map_err(|e| format!("PMTiles read error: {}", e))?;
 
-    let tile_id = pmtiles2::util::tile_id(z as u64, x as u64, y as u64);
-    match pm.get_tile(tile_id) {
-        Ok(data) => Ok(base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &data)),
-        Err(_) => Err("Tile not found".to_string()),
+    match pm.get_tile(x as u64, y as u64, z as u8) {
+        Ok(Some(data)) => Ok(base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &data)),
+        Ok(None) => Err("Tile not found".to_string()),
+        Err(_) => Err("Tile read error".to_string()),
     }
 }
 
