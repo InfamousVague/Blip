@@ -66,7 +66,7 @@ jobs:
         run: |
           # Helper binaries must be signed with hardened runtime + timestamp
           # before Tauri bundles them, otherwise Apple notarization rejects them
-          for bin in src-tauri/resources/blip-dns-helper src-tauri/resources/blip-ne-manager; do
+          for bin in src-tauri/resources/blip-dns-helper src-tauri/resources/blip-ne-manager src-tauri/resources/libblip_ne_bridge.dylib; do
             if [ -f "$bin" ]; then
               codesign --force --options runtime --timestamp \
                 --sign "$APPLE_SIGNING_IDENTITY" "$bin"
