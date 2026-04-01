@@ -60,6 +60,20 @@ jobs:
       - name: Build Network Extension
         run: cd src-tauri && bash scripts/build-ne.sh
 
+      - name: Sign helper binaries for notarization
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          # Helper binaries must be signed with hardened runtime + timestamp
+          # before Tauri bundles them, otherwise Apple notarization rejects them
+          for bin in src-tauri/resources/blip-dns-helper src-tauri/resources/blip-ne-manager; do
+            if [ -f "$bin" ]; then
+              codesign --force --options runtime --timestamp \
+                --sign "$APPLE_SIGNING_IDENTITY" "$bin"
+              echo "Signed: $bin"
+            fi
+          done
+
       - name: Build Tauri app and create release
         uses: tauri-apps/tauri-action@v0
         env:
