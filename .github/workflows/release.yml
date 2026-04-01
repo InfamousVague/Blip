@@ -32,6 +32,9 @@ jobs:
         with:
           workspaces: src-tauri
 
+      - name: Clone base library
+        run: git clone https://github.com/InfamousVague/base.git ../../Libs/base
+
       - name: Install npm dependencies
         run: npm ci
 
