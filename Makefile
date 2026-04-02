@@ -44,7 +44,7 @@ build:
 	@echo "=== Building NE ==="
 	cd $(TAURI) && bash scripts/build-ne.sh
 	@echo "=== Building Tauri release ==="
-	cd $(ROOT) && npm run tauri build
+	cd $(ROOT) && npm run tauri build -- --bundles app,dmg
 
 ## Post-build: place NE in bundle, embed profiles, sign everything
 sign:

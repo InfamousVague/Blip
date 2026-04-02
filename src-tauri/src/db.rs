@@ -74,7 +74,7 @@ pub struct TrackerDomainStat {
 // ---- Database ----
 
 pub struct Database {
-    conn: Mutex<Connection>,
+    pub(crate) conn: Mutex<Connection>,
 }
 
 impl Database {
@@ -314,6 +314,153 @@ impl Database {
             )
             .map_err(|e| format!("Migration v5 failed: {}", e))?;
             log::info!("Migration v5 complete");
+        }
+
+        if current < 6 {
+            log::info!("Running migration v6 (traced routes)...");
+            conn.execute_batch(
+                "
+                CREATE TABLE IF NOT EXISTS traced_routes (
+                    dest_ip TEXT PRIMARY KEY,
+                    hops TEXT NOT NULL,
+                    traced_at INTEGER NOT NULL,
+                    ttl_ms INTEGER NOT NULL DEFAULT 86400000
+                );
+
+                INSERT OR REPLACE INTO schema_version (version) VALUES (6);
+                ",
+            )
+            .map_err(|e| format!("Migration v6 failed: {}", e))?;
+            log::info!("Migration v6 complete");
+        }
+
+        if current < 7 {
+            log::info!("Running migration v7 (route history for comparison)...");
+            conn.execute_batch(
+                "
+                CREATE TABLE IF NOT EXISTS route_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    dest_ip TEXT NOT NULL,
+                    hops TEXT NOT NULL,
+                    as_path TEXT,
+                    traced_at INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_route_history_dest ON route_history(dest_ip);
+                CREATE INDEX IF NOT EXISTS idx_route_history_time ON route_history(traced_at);
+
+                INSERT OR REPLACE INTO schema_version (version) VALUES (7);
+                ",
+            )
+            .map_err(|e| format!("Migration v7 failed: {}", e))?;
+            log::info!("Migration v7 complete");
+        }
+
+        if current < 8 {
+            log::info!("Running migration v8 (firewall rebuild - fresh start)...");
+            conn.execute_batch(
+                "
+                -- Drop old firewall tables (fresh start per design decision)
+                DROP TABLE IF EXISTS firewall_rules;
+                DROP TABLE IF EXISTS app_connections;
+
+                -- New firewall rules with full granularity
+                CREATE TABLE firewall_rules (
+                    id TEXT PRIMARY KEY,
+                    profile_id TEXT NOT NULL DEFAULT 'default',
+                    app_id TEXT NOT NULL,
+                    app_name TEXT NOT NULL,
+                    app_path TEXT,
+                    action TEXT NOT NULL DEFAULT 'ask',
+                    domain_pattern TEXT,
+                    domain_match_type TEXT,
+                    port TEXT,
+                    protocol TEXT,
+                    direction TEXT NOT NULL DEFAULT 'any',
+                    lifetime TEXT NOT NULL DEFAULT 'forever',
+                    hit_count INTEGER NOT NULL DEFAULT 0,
+                    bytes_allowed INTEGER NOT NULL DEFAULT 0,
+                    bytes_blocked INTEGER NOT NULL DEFAULT 0,
+                    last_triggered_ms INTEGER,
+                    enabled INTEGER NOT NULL DEFAULT 1,
+                    priority INTEGER NOT NULL DEFAULT 100,
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL
+                );
+                CREATE INDEX idx_fw2_app_profile ON firewall_rules(app_id, profile_id);
+                CREATE INDEX idx_fw2_action ON firewall_rules(action);
+                CREATE INDEX idx_fw2_enabled ON firewall_rules(enabled);
+                CREATE INDEX idx_fw2_profile ON firewall_rules(profile_id);
+
+                -- App registry (replaces app_connections)
+                CREATE TABLE app_registry (
+                    app_id TEXT PRIMARY KEY,
+                    app_name TEXT NOT NULL,
+                    app_path TEXT,
+                    is_apple_signed INTEGER NOT NULL DEFAULT 0,
+                    is_system_app INTEGER NOT NULL DEFAULT 0,
+                    code_signing_status TEXT DEFAULT 'unknown',
+                    first_seen_ms INTEGER NOT NULL,
+                    last_seen_ms INTEGER NOT NULL,
+                    total_connections INTEGER NOT NULL DEFAULT 0,
+                    total_bytes_in INTEGER NOT NULL DEFAULT 0,
+                    total_bytes_out INTEGER NOT NULL DEFAULT 0,
+                    privacy_score TEXT,
+                    tracker_connection_count INTEGER NOT NULL DEFAULT 0,
+                    clean_connection_count INTEGER NOT NULL DEFAULT 0
+                );
+
+                -- Network profiles
+                CREATE TABLE network_profiles (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    description TEXT,
+                    is_active INTEGER NOT NULL DEFAULT 0,
+                    auto_switch_ssid TEXT,
+                    auto_switch_vpn INTEGER NOT NULL DEFAULT 0,
+                    created_at INTEGER NOT NULL
+                );
+                INSERT INTO network_profiles (id, name, description, is_active, created_at)
+                    VALUES ('default', 'Default', 'Default network profile', 1, strftime('%s','now') * 1000);
+
+                -- Block history (recent 100)
+                CREATE TABLE block_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    app_id TEXT,
+                    domain TEXT,
+                    dest_ip TEXT,
+                    dest_port INTEGER,
+                    protocol TEXT,
+                    direction TEXT,
+                    rule_id TEXT,
+                    reason TEXT NOT NULL,
+                    timestamp_ms INTEGER NOT NULL
+                );
+                CREATE INDEX idx_bh_timestamp ON block_history(timestamp_ms);
+                CREATE INDEX idx_bh_app ON block_history(app_id);
+
+                -- Hourly block stats aggregation
+                CREATE TABLE block_stats_hourly (
+                    hour_bucket INTEGER NOT NULL,
+                    app_id TEXT NOT NULL,
+                    domain TEXT NOT NULL,
+                    block_count INTEGER NOT NULL DEFAULT 0,
+                    bytes_blocked INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (hour_bucket, app_id, domain)
+                );
+
+                -- Domain categories for category-based matching
+                CREATE TABLE domain_categories (
+                    domain_pattern TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    source TEXT DEFAULT 'builtin',
+                    PRIMARY KEY (domain_pattern, category)
+                );
+
+                INSERT OR REPLACE INTO schema_version (version) VALUES (8);
+                ",
+            )
+            .map_err(|e| format!("Migration v8 failed: {}", e))?;
+            log::info!("Migration v8 complete — firewall rebuilt from scratch");
         }
 
         Ok(())
@@ -792,10 +939,11 @@ impl Database {
     // ---- Firewall rules ----
 
     pub fn get_firewall_rules(&self) -> Result<Vec<FirewallRule>, String> {
+        // Map from new v8 schema to legacy FirewallRule type for backwards compatibility
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn
             .prepare(
-                "SELECT id, app_id, app_name, app_path, action, domain, port, protocol, expires_at, lifetime, created_at, updated_at
+                "SELECT id, app_id, app_name, app_path, action, domain_pattern, port, protocol, lifetime, created_at, updated_at
                  FROM firewall_rules ORDER BY app_name"
             )
             .map_err(|e| format!("Prepare failed: {}", e))?;
@@ -808,13 +956,14 @@ impl Database {
                     app_name: row.get(2)?,
                     app_path: row.get(3)?,
                     action: row.get(4)?,
-                    domain: row.get(5)?,
-                    port: row.get::<_, Option<i32>>(6)?.map(|p| p as u16),
+                    domain: row.get(5)?,       // domain_pattern → domain
+                    port: row.get::<_, Option<String>>(6)?
+                        .and_then(|s| s.parse::<u16>().ok()), // string port → u16
                     protocol: row.get(7)?,
-                    expires_at: row.get(8)?,
-                    lifetime: row.get::<_, Option<String>>(9)?.unwrap_or_else(|| "permanent".to_string()),
-                    created_at: row.get(10)?,
-                    updated_at: row.get(11)?,
+                    expires_at: None,          // No longer used
+                    lifetime: row.get::<_, Option<String>>(8)?.unwrap_or_else(|| "forever".to_string()),
+                    created_at: row.get(9)?,
+                    updated_at: row.get(10)?,
                 })
             })
             .map_err(|e| format!("Query failed: {}", e))?
@@ -834,7 +983,7 @@ impl Database {
         port: Option<u16>,
         protocol: Option<&str>,
         lifetime: &str,
-        expires_at: Option<u64>,
+        _expires_at: Option<u64>,
     ) -> Result<FirewallRule, String> {
         let conn = self.conn.lock().unwrap();
         let now = std::time::SystemTime::now()
@@ -842,21 +991,27 @@ impl Database {
             .unwrap()
             .as_millis() as u64;
 
-        // Match on (app_id, domain, port, protocol) for upserts
+        let port_str = port.map(|p| p.to_string());
+
+        // Match on (app_id, domain_pattern, port, protocol) for upserts
         let existing_id: Option<String> = conn
             .query_row(
-                "SELECT id FROM firewall_rules WHERE app_id = ?1 AND domain IS ?2 AND port IS ?3 AND protocol IS ?4",
-                params![app_id, domain, port.map(|p| p as i32), protocol],
+                "SELECT id FROM firewall_rules WHERE app_id = ?1 AND domain_pattern IS ?2 AND port IS ?3 AND protocol IS ?4",
+                params![app_id, domain, port_str, protocol],
                 |row| row.get(0),
             )
             .ok();
 
         let id = existing_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        let lt = if lifetime == "permanent" || lifetime == "timed" { "forever" } else { lifetime };
 
         conn.execute(
-            "INSERT OR REPLACE INTO firewall_rules (id, app_id, app_name, app_path, action, domain, port, protocol, expires_at, lifetime, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, COALESCE((SELECT created_at FROM firewall_rules WHERE id = ?1), ?11), ?11)",
-            params![id, app_id, app_name, app_path, action, domain, port.map(|p| p as i32), protocol, expires_at, lifetime, now],
+            "INSERT OR REPLACE INTO firewall_rules (id, profile_id, app_id, app_name, app_path, action,
+                domain_pattern, port, protocol, direction, lifetime, hit_count, bytes_allowed, bytes_blocked,
+                enabled, priority, created_at, updated_at)
+             VALUES (?1, 'default', ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'any', ?9, 0, 0, 0, 1, 100,
+                COALESCE((SELECT created_at FROM firewall_rules WHERE id = ?1), ?10), ?10)",
+            params![id, app_id, app_name, app_path, action, domain, port_str, protocol, lt, now],
         )
         .map_err(|e| format!("Set firewall rule failed: {}", e))?;
 
@@ -869,8 +1024,8 @@ impl Database {
             domain: domain.map(String::from),
             port,
             protocol: protocol.map(String::from),
-            expires_at,
-            lifetime: lifetime.to_string(),
+            expires_at: None,
+            lifetime: lt.to_string(),
             created_at: now,
             updated_at: now,
         })
@@ -884,17 +1039,8 @@ impl Database {
     }
 
     pub fn cleanup_expired_rules(&self) -> Result<usize, String> {
-        let conn = self.conn.lock().unwrap();
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u64;
-        let count = conn.execute(
-            "DELETE FROM firewall_rules WHERE expires_at IS NOT NULL AND expires_at <= ?1",
-            params![now],
-        )
-        .map_err(|e| format!("Cleanup expired rules failed: {}", e))?;
-        Ok(count)
+        // No longer have expires_at in v8 schema — session rules cleaned on startup instead
+        Ok(0)
     }
 
     pub fn cleanup_session_rules(&self) -> Result<usize, String> {
@@ -914,57 +1060,85 @@ impl Database {
         Ok(())
     }
 
-    // ---- App connections (auto-discovered apps) ----
+    // ---- App Registry (auto-discovered apps) ----
 
-    /// Upsert an app connection record. Returns `true` if this is a newly discovered app.
-    pub fn upsert_app_connection(&self, app_id: &str, app_name: &str, app_path: Option<&str>, is_apple: bool) -> Result<bool, String> {
+    /// Upsert an app in the registry. Returns `true` if this is a newly discovered app.
+    pub fn upsert_app_registry(
+        &self,
+        app_id: &str,
+        app_name: &str,
+        app_path: Option<&str>,
+        is_apple: bool,
+        is_tracker: bool,
+    ) -> Result<bool, String> {
         let conn = self.conn.lock().unwrap();
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_millis() as u64;
 
+        let is_system = crate::firewall::whitelist::is_system_whitelisted(app_id);
+        let signing_status = if is_apple { "apple" } else { "unknown" };
+
         // Check if this app already exists
-        let is_new = conn
+        let exists = conn
             .query_row(
-                "SELECT 1 FROM app_connections WHERE app_id = ?1",
+                "SELECT 1 FROM app_registry WHERE app_id = ?1",
                 params![app_id],
                 |_| Ok(true),
             )
             .unwrap_or(false);
 
+        let tracker_inc = if is_tracker { 1i64 } else { 0 };
+        let clean_inc = if is_tracker { 0i64 } else { 1 };
+
         conn.execute(
-            "INSERT INTO app_connections (app_id, app_name, app_path, first_seen_ms, last_seen_ms, total_connections, is_apple_signed)
-             VALUES (?1, ?2, ?3, ?4, ?4, 1, ?5)
+            "INSERT INTO app_registry (app_id, app_name, app_path, is_apple_signed, is_system_app,
+                code_signing_status, first_seen_ms, last_seen_ms, total_connections,
+                tracker_connection_count, clean_connection_count)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, 1, ?8, ?9)
              ON CONFLICT(app_id) DO UPDATE SET
-                last_seen_ms = ?4,
+                last_seen_ms = ?7,
                 total_connections = total_connections + 1,
+                tracker_connection_count = tracker_connection_count + ?8,
+                clean_connection_count = clean_connection_count + ?9,
                 app_name = CASE WHEN ?2 != 'unknown' THEN ?2 ELSE app_name END",
-            params![app_id, app_name, app_path, now, is_apple],
+            params![app_id, app_name, app_path, is_apple, is_system, signing_status, now, tracker_inc, clean_inc],
         )
-        .map_err(|e| format!("Upsert app connection failed: {}", e))?;
-        Ok(!is_new)
+        .map_err(|e| format!("Upsert app registry failed: {}", e))?;
+        Ok(!exists)
     }
 
-    pub fn get_app_connections(&self) -> Result<Vec<AppConnectionInfo>, String> {
+    pub fn get_app_registry(&self) -> Result<Vec<crate::firewall::types::AppInfo>, String> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn
             .prepare(
-                "SELECT app_id, app_name, app_path, first_seen_ms, last_seen_ms, total_connections, is_apple_signed
-                 FROM app_connections ORDER BY last_seen_ms DESC",
+                "SELECT app_id, app_name, app_path, is_apple_signed, is_system_app,
+                        code_signing_status, first_seen_ms, last_seen_ms, total_connections,
+                        total_bytes_in, total_bytes_out, privacy_score,
+                        tracker_connection_count, clean_connection_count
+                 FROM app_registry ORDER BY last_seen_ms DESC",
             )
             .map_err(|e| format!("Prepare failed: {}", e))?;
 
         let apps = stmt
             .query_map([], |row| {
-                Ok(AppConnectionInfo {
+                Ok(crate::firewall::types::AppInfo {
                     app_id: row.get(0)?,
                     app_name: row.get(1)?,
                     app_path: row.get(2)?,
-                    first_seen_ms: row.get(3)?,
-                    last_seen_ms: row.get(4)?,
-                    total_connections: row.get(5)?,
-                    is_apple_signed: row.get::<_, i32>(6)? != 0,
+                    is_apple_signed: row.get::<_, i32>(3)? != 0,
+                    is_system_app: row.get::<_, i32>(4)? != 0,
+                    code_signing_status: row.get::<_, Option<String>>(5)?
+                        .unwrap_or_else(|| "unknown".to_string()),
+                    first_seen_ms: row.get(6)?,
+                    last_seen_ms: row.get(7)?,
+                    total_connections: row.get::<_, i64>(8)? as u64,
+                    total_bytes_in: row.get::<_, i64>(9)? as u64,
+                    total_bytes_out: row.get::<_, i64>(10)? as u64,
+                    privacy_score: row.get(11)?,
+                    tracker_connection_count: row.get::<_, i64>(12)? as u64,
+                    clean_connection_count: row.get::<_, i64>(13)? as u64,
                 })
             })
             .map_err(|e| format!("Query failed: {}", e))?
@@ -972,5 +1146,150 @@ impl Database {
             .collect();
 
         Ok(apps)
+    }
+
+    // Legacy compat: keep old function signature working during transition
+    pub fn upsert_app_connection(&self, app_id: &str, app_name: &str, app_path: Option<&str>, is_apple: bool) -> Result<bool, String> {
+        self.upsert_app_registry(app_id, app_name, app_path, is_apple, false)
+    }
+
+    pub fn get_app_connections(&self) -> Result<Vec<AppConnectionInfo>, String> {
+        // Map from new schema to old type for legacy callers
+        let apps = self.get_app_registry()?;
+        Ok(apps.iter().map(|a| AppConnectionInfo {
+            app_id: a.app_id.clone(),
+            app_name: a.app_name.clone(),
+            app_path: a.app_path.clone(),
+            first_seen_ms: a.first_seen_ms,
+            last_seen_ms: a.last_seen_ms,
+            total_connections: a.total_connections,
+            is_apple_signed: a.is_apple_signed,
+        }).collect())
+    }
+
+    // ---- Traced Routes ----
+
+    pub fn insert_traced_route(&self, route: &crate::traceroute::TracedRoute) {
+        let conn = self.conn.lock().unwrap();
+        let hops_json = serde_json::to_string(&route.hops).unwrap_or_default();
+        let _ = conn.execute(
+            "INSERT OR REPLACE INTO traced_routes (dest_ip, hops, traced_at, ttl_ms) VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params![route.dest_ip, hops_json, route.traced_at, 86400000i64],
+        );
+    }
+
+    pub fn get_traced_route(&self, dest_ip: &str) -> Option<crate::traceroute::TracedRoute> {
+        let conn = self.conn.lock().unwrap();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+        conn.query_row(
+            "SELECT dest_ip, hops, traced_at FROM traced_routes WHERE dest_ip = ?1 AND (traced_at + ttl_ms) > ?2",
+            rusqlite::params![dest_ip, now],
+            |row| {
+                let dest_ip: String = row.get(0)?;
+                let hops_json: String = row.get(1)?;
+                let traced_at: u64 = row.get(2)?;
+                let hops: Vec<crate::traceroute::TracerouteHop> =
+                    serde_json::from_str(&hops_json).unwrap_or_default();
+                Ok(crate::traceroute::TracedRoute { dest_ip, hops, traced_at })
+            },
+        )
+        .ok()
+    }
+
+    pub fn get_all_traced_routes(&self) -> std::collections::HashMap<String, crate::traceroute::TracedRoute> {
+        let conn = self.conn.lock().unwrap();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+        let mut stmt = match conn.prepare(
+            "SELECT dest_ip, hops, traced_at FROM traced_routes WHERE (traced_at + ttl_ms) > ?1"
+        ) {
+            Ok(s) => s,
+            Err(_) => return std::collections::HashMap::new(),
+        };
+        let routes = stmt
+            .query_map(rusqlite::params![now], |row| {
+                let dest_ip: String = row.get(0)?;
+                let hops_json: String = row.get(1)?;
+                let traced_at: u64 = row.get(2)?;
+                let hops: Vec<crate::traceroute::TracerouteHop> =
+                    serde_json::from_str(&hops_json).unwrap_or_default();
+                Ok(crate::traceroute::TracedRoute { dest_ip, hops, traced_at })
+            })
+            .ok();
+        match routes {
+            Some(rows) => rows
+                .filter_map(|r| r.ok())
+                .map(|r| (r.dest_ip.clone(), r))
+                .collect(),
+            None => std::collections::HashMap::new(),
+        }
+    }
+
+    // ---- Route History (for comparison) ----
+
+    pub fn insert_route_history(&self, route: &crate::traceroute::TracedRoute) {
+        let conn = self.conn.lock().unwrap();
+        let hops_json = serde_json::to_string(&route.hops).unwrap_or_default();
+        // Extract AS path as comma-separated ASNs for quick comparison
+        let as_path: String = route.hops.iter()
+            .filter_map(|h| h.asn)
+            .map(|a| a.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        let _ = conn.execute(
+            "INSERT INTO route_history (dest_ip, hops, as_path, traced_at) VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params![route.dest_ip, hops_json, as_path, route.traced_at],
+        );
+    }
+
+    /// Get the previous AS path for a destination (most recent before the given timestamp).
+    pub fn get_previous_as_path(&self, dest_ip: &str, before_ms: u64) -> Option<String> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT as_path FROM route_history WHERE dest_ip = ?1 AND traced_at < ?2 ORDER BY traced_at DESC LIMIT 1",
+            rusqlite::params![dest_ip, before_ms],
+            |row| row.get(0),
+        ).ok()
+    }
+
+    // ---- Database stats ----
+
+    pub fn get_database_stats(&self) -> (u64, u64, u64, u64) {
+        let conn = self.conn.lock().unwrap();
+        let connections: u64 = conn.query_row("SELECT COUNT(*) FROM connections", [], |r| r.get(0)).unwrap_or(0);
+        let dns_queries: u64 = conn.query_row("SELECT COUNT(*) FROM dns_queries", [], |r| r.get(0)).unwrap_or(0);
+        let traced_routes: u64 = conn.query_row("SELECT COUNT(*) FROM traced_routes", [], |r| r.get(0)).unwrap_or(0);
+        // Try new table first, fall back to old
+        let firewall_rules: u64 = conn.query_row("SELECT COUNT(*) FROM firewall_rules", [], |r| r.get(0)).unwrap_or(0);
+        (connections, dns_queries, traced_routes, firewall_rules)
+    }
+
+    /// Delete connections and DNS queries older than `days` days.
+    pub fn cleanup_old_data(&self, days: u32) -> (u64, u64) {
+        let conn = self.conn.lock().unwrap();
+        let cutoff_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64
+            - (days as i64 * 24 * 60 * 60 * 1000);
+        let conns_deleted: u64 = conn.execute(
+            "DELETE FROM connections WHERE last_seen_ms < ?1",
+            rusqlite::params![cutoff_ms],
+        ).map(|c| c as u64).unwrap_or(0);
+        let dns_deleted: u64 = conn.execute(
+            "DELETE FROM dns_queries WHERE timestamp_ms < ?1",
+            rusqlite::params![cutoff_ms],
+        ).map(|c| c as u64).unwrap_or(0);
+        (conns_deleted, dns_deleted)
+    }
+
+    pub fn get_database_path(&self) -> String {
+        let conn = self.conn.lock().unwrap();
+        conn.path().unwrap_or("").to_string()
     }
 }

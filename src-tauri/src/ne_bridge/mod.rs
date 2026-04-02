@@ -22,6 +22,28 @@ use uuid::Uuid;
 #[derive(Clone, Debug)]
 enum NEOutboundMsg {
     BlockedIPs(Vec<String>),
+    FirewallConfig(serde_json::Value),
+    DnsCacheUpdate(std::collections::HashMap<String, String>),
+    KillSwitch(bool),
+    ApprovalVerdict { request_id: String, action: String },
+}
+
+/// Handle for sending messages to connected NE clients from outside the bridge.
+#[derive(Clone)]
+pub struct NEBroadcast {
+    tx: broadcast::Sender<NEOutboundMsg>,
+}
+
+impl NEBroadcast {
+    /// Broadcast a full firewall config update to all connected NE clients.
+    pub fn send_firewall_config(&self, config: serde_json::Value) {
+        let _ = self.tx.send(NEOutboundMsg::FirewallConfig(config));
+    }
+
+    /// Broadcast a kill switch state change.
+    pub fn send_kill_switch(&self, active: bool) {
+        let _ = self.tx.send(NEOutboundMsg::KillSwitch(active));
+    }
 }
 
 /// Manages the Unix domain socket server that receives events from the Network Extension.
@@ -31,8 +53,6 @@ pub struct NEBridge {
 
 impl NEBridge {
     pub fn new() -> Self {
-        // Fixed path accessible to both the NE (runs as root) and the main app (runs as user).
-        // The NE's homeDirectoryForCurrentUser resolves to /var/root, not the user's home.
         let socket_path = std::path::PathBuf::from("/private/var/tmp/blip-ne.sock");
         Self { socket_path }
     }
@@ -49,7 +69,7 @@ impl NEBridge {
         enricher: Arc<std::sync::Mutex<Enricher>>,
         db: Arc<Database>,
         app_handle: tauri::AppHandle,
-    ) -> Result<(), String> {
+    ) -> Result<NEBroadcast, String> {
         // Remove stale socket file
         let _ = std::fs::remove_file(&self.socket_path);
 
@@ -64,8 +84,9 @@ impl NEBridge {
 
         log::info!("NE bridge listening at {:?}", self.socket_path);
 
-        // Broadcast channel for sending blocked IPs to all connected NE clients
+        // Broadcast channel for sending messages to all connected NE clients
         let (outbound_tx, _) = broadcast::channel::<NEOutboundMsg>(64);
+        let broadcast_handle = NEBroadcast { tx: outbound_tx.clone() };
 
         // Accept connections from the NE
         tokio::spawn(async move {
@@ -87,28 +108,59 @@ impl NEBridge {
                         tokio::spawn(async move {
                             let (read_half, mut write_half) = stream.into_split();
 
-                            // Send firewall rules to NE on connect
+                            // Track whether we receive ne_hello from this NE client
+                            let ne_hello_received = Arc::new(std::sync::atomic::AtomicBool::new(false));
                             {
-                                if let Ok(rules) = db.get_firewall_rules() {
-                                    let rule_entries: Vec<serde_json::Value> = rules.iter()
-                                        .filter(|r| r.action != "unspecified")
-                                        .map(|r| {
-                                            let mut entry = serde_json::json!({"app_id": r.app_id, "action": r.action});
-                                            if let Some(ref d) = r.domain { entry["domain"] = serde_json::json!(d); }
-                                            if let Some(p) = r.port { entry["port"] = serde_json::json!(p); }
-                                            if let Some(ref p) = r.protocol { entry["protocol"] = serde_json::json!(p); }
-                                            entry
-                                        })
-                                        .collect();
-                                    if !rule_entries.is_empty() {
-                                        let msg = serde_json::json!({
-                                            "type": "firewall_rules",
-                                            "rules": rule_entries
+                                let hello_flag = ne_hello_received.clone();
+                                let ah = app_handle.clone();
+                                tokio::spawn(async move {
+                                    // If no ne_hello arrives within 5 seconds, NE is outdated
+                                    tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                                    if !hello_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                                        log::warn!("NE did not send ne_hello — likely outdated version");
+                                        let _ = ah.emit("ne-version-mismatch", serde_json::json!({
+                                            "expected": "2.0.0",
+                                            "actual": "legacy (no hello)",
+                                        }));
+                                    }
+                                });
+                            }
+
+                            // Send full firewall config to NE on connect
+                            {
+                                let profile_id = db.get_active_profile_id();
+                                let mode = db.get_preference("firewall_mode")
+                                    .ok().flatten().unwrap_or_else(|| "ask".to_string());
+                                let kill_switch = db.get_preference("kill_switch_active")
+                                    .ok().flatten().map(|v| v == "true").unwrap_or(false);
+
+                                let rules = db.get_all_rules_for_ne(&profile_id).unwrap_or_default();
+
+                                let config_msg = serde_json::json!({
+                                    "type": "firewall_config",
+                                    "mode": mode,
+                                    "kill_switch": kill_switch,
+                                    "active_profile_id": profile_id,
+                                    "rules": rules
+                                });
+                                let mut bytes = serde_json::to_vec(&config_msg).unwrap_or_default();
+                                bytes.push(b'\n');
+                                let _ = write_half.write_all(&bytes).await;
+                                log::info!("Sent firewall config to NE: mode={}, {} rules, kill_switch={}",
+                                    mode, rules.len(), kill_switch);
+
+                                // Also send DNS cache to NE
+                                if let Ok(mapping) = dns_mapping.try_read() {
+                                    let ip_to_domain = mapping.get_ip_domain_mappings();
+                                    if !ip_to_domain.is_empty() {
+                                        let dns_msg = serde_json::json!({
+                                            "type": "dns_cache_update",
+                                            "mappings": ip_to_domain
                                         });
-                                        let mut bytes = serde_json::to_vec(&msg).unwrap_or_default();
-                                        bytes.push(b'\n');
-                                        let _ = write_half.write_all(&bytes).await;
-                                        log::info!("Sent {} firewall rules to NE", rule_entries.len());
+                                        let mut dns_bytes = serde_json::to_vec(&dns_msg).unwrap_or_default();
+                                        dns_bytes.push(b'\n');
+                                        let _ = write_half.write_all(&dns_bytes).await;
+                                        log::info!("Sent {} DNS cache entries to NE", ip_to_domain.len());
                                     }
                                 }
                             }
@@ -143,23 +195,35 @@ impl NEBridge {
                             let write_half = Arc::new(tokio::sync::Mutex::new(write_half));
                             let write_for_outbound = write_half.clone();
 
-                            // Spawn outbound forwarder — sends blocked IPs to this NE client
+                            // Spawn outbound forwarder — sends messages to this NE client
                             let outbound_task = tokio::spawn(async move {
                                 while let Ok(msg) = outbound_rx.recv().await {
-                                    match msg {
-                                        NEOutboundMsg::BlockedIPs(ips) => {
-                                            let msg = serde_json::json!({
-                                                "type": "blocked_ips",
-                                                "ips": ips
-                                            });
-                                            let mut bytes = serde_json::to_vec(&msg).unwrap_or_default();
-                                            bytes.push(b'\n');
-                                            let mut w = write_for_outbound.lock().await;
-                                            if let Err(e) = w.write_all(&bytes).await {
-                                                log::debug!("Outbound write failed: {}", e);
-                                                break;
-                                            }
-                                        }
+                                    let json_msg = match msg {
+                                        NEOutboundMsg::BlockedIPs(ips) => serde_json::json!({
+                                            "type": "blocked_ips",
+                                            "ips": ips
+                                        }),
+                                        NEOutboundMsg::FirewallConfig(config) => config,
+                                        NEOutboundMsg::DnsCacheUpdate(mappings) => serde_json::json!({
+                                            "type": "dns_cache_update",
+                                            "mappings": mappings
+                                        }),
+                                        NEOutboundMsg::KillSwitch(active) => serde_json::json!({
+                                            "type": "kill_switch",
+                                            "active": active
+                                        }),
+                                        NEOutboundMsg::ApprovalVerdict { request_id, action } => serde_json::json!({
+                                            "type": "approval_verdict",
+                                            "request_id": request_id,
+                                            "action": action
+                                        }),
+                                    };
+                                    let mut bytes = serde_json::to_vec(&json_msg).unwrap_or_default();
+                                    bytes.push(b'\n');
+                                    let mut w = write_for_outbound.lock().await;
+                                    if let Err(e) = w.write_all(&bytes).await {
+                                        log::debug!("Outbound write failed: {}", e);
+                                        break;
                                     }
                                 }
                             });
@@ -175,9 +239,11 @@ impl NEBridge {
                                                 // Track app for firewall sidebar auto-discovery
                                                 let app_id = conn_event.source_app_id.clone();
                                                 let is_apple = app_id.starts_with("com.apple.");
+                                                // Derive display name from bundle ID
+                                                let app_name = resolve_app_name(&app_id);
                                                 let is_new_app = db.upsert_app_connection(
                                                     &app_id,
-                                                    &app_id, // Use bundle ID as name for now
+                                                    &app_name,
                                                     None,
                                                     is_apple,
                                                 ).unwrap_or(false);
@@ -231,6 +297,10 @@ impl NEBridge {
                                         }
                                         "dns" => {
                                             if let Some(dns_event) = event.dns {
+                                                // Capture response IPs for DNS cache update before processing
+                                                let response_ips = dns_event.response_ips.clone();
+                                                let domain_for_cache = dns_event.domain.clone();
+
                                                 let new_blocked_ips = process_ne_dns(
                                                     dns_event,
                                                     &dns_mapping,
@@ -243,11 +313,81 @@ impl NEBridge {
                                                 if !new_blocked_ips.is_empty() {
                                                     let _ = outbound_tx.send(NEOutboundMsg::BlockedIPs(new_blocked_ips));
                                                 }
+
+                                                // Forward DNS cache update to NE for domain-based rule matching
+                                                if !response_ips.is_empty() {
+                                                    let mappings: std::collections::HashMap<String, String> = response_ips
+                                                        .iter()
+                                                        .map(|ip| (ip.clone(), domain_for_cache.clone()))
+                                                        .collect();
+                                                    let _ = outbound_tx.send(NEOutboundMsg::DnsCacheUpdate(mappings));
+                                                }
                                             }
                                         }
                                         "flow_update" => {
                                             if let Some(flow) = event.flow_update {
                                                 process_ne_flow_update(flow, &store).await;
+                                            }
+                                        }
+                                        "approval_request" => {
+                                            // Forward approval request to frontend
+                                            if let Some(request) = event.approval_request {
+                                                let _ = app_handle.emit("firewall-approval-request", request);
+
+                                                // Also show macOS notification
+                                                let app_id = event.approval_request_app_id.as_deref().unwrap_or("Unknown");
+                                                let domain = event.approval_request_domain.as_deref().unwrap_or("unknown");
+                                                let display_name = {
+                                                    let last = app_id.split('.').last().unwrap_or(app_id);
+                                                    let mut c = last.chars();
+                                                    match c.next() {
+                                                        None => app_id.to_string(),
+                                                        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+                                                    }
+                                                };
+                                                let _ = app_handle.notification()
+                                                    .builder()
+                                                    .title("Connection Request")
+                                                    .body(format!("{} wants to connect to {}", display_name, domain))
+                                                    .show();
+                                            }
+                                        }
+                                        "block_event" => {
+                                            // Log block to history
+                                            if let Some(block) = event.block_event {
+                                                let _ = db.insert_block_history(
+                                                    block.get("app_id").and_then(|v| v.as_str()),
+                                                    block.get("domain").and_then(|v| v.as_str()),
+                                                    block.get("dest_ip").and_then(|v| v.as_str()),
+                                                    block.get("dest_port").and_then(|v| v.as_u64()).map(|p| p as u16),
+                                                    block.get("protocol").and_then(|v| v.as_str()),
+                                                    block.get("direction").and_then(|v| v.as_str()),
+                                                    block.get("rule_id").and_then(|v| v.as_str()),
+                                                    block.get("reason").and_then(|v| v.as_str()).unwrap_or("rule"),
+                                                );
+                                            }
+                                        }
+                                        "ne_hello" => {
+                                            ne_hello_received.store(true, std::sync::atomic::Ordering::Relaxed);
+                                            // NE sends version on connect — check if it matches app version
+                                            let ne_version = event.ne_version.as_deref().unwrap_or("unknown");
+                                            let app_version = env!("CARGO_PKG_VERSION");
+                                            log::info!("NE hello: ne_version={}, app_version={}", ne_version, app_version);
+                                            if ne_version != app_version && ne_version != "unknown" {
+                                                log::warn!(
+                                                    "NE version mismatch: app={}, ne={}",
+                                                    app_version, ne_version
+                                                );
+                                                let _ = app_handle.emit("ne-version-mismatch", serde_json::json!({
+                                                    "expected": app_version,
+                                                    "actual": ne_version,
+                                                }));
+                                            } else {
+                                                log::info!("NE version OK: {}", ne_version);
+                                                let _ = db.delete_preference("ne_update_dismissed");
+                                                let _ = app_handle.emit("ne-connected", serde_json::json!({
+                                                    "version": ne_version,
+                                                }));
                                             }
                                         }
                                         "listening_ports" => {
@@ -256,7 +396,7 @@ impl NEBridge {
                                             }
                                         }
                                         other => {
-                                            log::warn!("Unknown NE event type: {}", other);
+                                            log::debug!("Unknown NE event type: {}", other);
                                         }
                                     },
                                     Err(e) => {
@@ -277,7 +417,7 @@ impl NEBridge {
             }
         });
 
-        Ok(())
+        Ok(broadcast_handle)
     }
 
     /// Clean up the socket file.
@@ -514,4 +654,57 @@ async fn process_ne_listening_ports(
     let _ = app_handle.emit("ne-listening-ports", serde_json::json!({
         "ports": ports,
     }));
+}
+
+/// Resolve a display name from a bundle ID.
+/// Uses mdfind (Spotlight) to locate the .app bundle and read CFBundleName from Info.plist.
+/// Falls back to formatting the bundle ID into a readable name.
+fn resolve_app_name(bundle_id: &str) -> String {
+    // Try mdfind for fast Spotlight lookup
+    if let Ok(output) = std::process::Command::new("mdfind")
+        .args(["kMDItemCFBundleIdentifier", "=", bundle_id])
+        .output()
+    {
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            if let Some(app_path) = stdout.lines().find(|l| l.ends_with(".app")) {
+                // Try to read CFBundleName or CFBundleDisplayName from Info.plist
+                let plist_path = format!("{}/Contents/Info.plist", app_path);
+                if let Ok(name_output) = std::process::Command::new("plutil")
+                    .args(["-extract", "CFBundleDisplayName", "raw", "-o", "-", &plist_path])
+                    .output()
+                {
+                    if name_output.status.success() {
+                        let name = String::from_utf8_lossy(&name_output.stdout).trim().to_string();
+                        if !name.is_empty() {
+                            return name;
+                        }
+                    }
+                }
+                if let Ok(name_output) = std::process::Command::new("plutil")
+                    .args(["-extract", "CFBundleName", "raw", "-o", "-", &plist_path])
+                    .output()
+                {
+                    if name_output.status.success() {
+                        let name = String::from_utf8_lossy(&name_output.stdout).trim().to_string();
+                        if !name.is_empty() {
+                            return name;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Fallback: format the bundle ID into a readable name
+    // "com.google.Chrome" → "Chrome"
+    // "com.apple.mDNSResponder" → "mDNSResponder"
+    // "com.1password.1password" → "1Password"
+    let last = bundle_id.split('.').last().unwrap_or(bundle_id);
+    // Capitalize first letter
+    let mut chars = last.chars();
+    match chars.next() {
+        None => bundle_id.to_string(),
+        Some(f) => f.to_uppercase().collect::<String>() + chars.as_str(),
+    }
 }

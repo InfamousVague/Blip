@@ -7,15 +7,39 @@ use std::sync::Mutex;
 use crate::capture::types::GeoResult;
 
 pub struct GeoIp {
-    reader: Reader<Vec<u8>>,
+    /// Primary reader — DB-IP City Lite (better city coverage)
+    primary: Option<Reader<Vec<u8>>>,
+    /// Fallback reader — GeoLite2-City
+    fallback: Reader<Vec<u8>>,
     cache: Mutex<HashMap<IpAddr, Option<GeoResult>>>,
 }
 
 impl GeoIp {
     pub fn new(db_path: &Path) -> Result<Self, maxminddb::MaxMindDBError> {
-        let reader = Reader::open_readfile(db_path)?;
+        let fallback = Reader::open_readfile(db_path)?;
+
+        // Try loading DB-IP City Lite from the same directory
+        let dbip_path = db_path.parent()
+            .map(|p| p.join("dbip-city-lite.mmdb"))
+            .unwrap_or_default();
+        let primary = if dbip_path.exists() {
+            match Reader::open_readfile(&dbip_path) {
+                Ok(r) => {
+                    eprintln!("[GeoIP] Loaded DB-IP City Lite (supplementary)");
+                    Some(r)
+                }
+                Err(e) => {
+                    eprintln!("[GeoIP] Failed to load DB-IP City Lite: {}", e);
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         Ok(Self {
-            reader,
+            primary,
+            fallback,
             cache: Mutex::new(HashMap::new()),
         })
     }
@@ -36,8 +60,9 @@ impl GeoIp {
             }
         }
 
-        // Lookup
-        let result = self.do_lookup(ip);
+        // Lookup: try DB-IP first (better city coverage), fall back to GeoLite2
+        let result = self.do_lookup_primary(ip)
+            .or_else(|| self.do_lookup_fallback(ip));
 
         // Cache
         {
@@ -48,8 +73,25 @@ impl GeoIp {
         result
     }
 
-    fn do_lookup(&self, ip: IpAddr) -> Option<GeoResult> {
-        let city: maxminddb::geoip2::City = self.reader.lookup(ip).ok()?;
+    /// Lookup using DB-IP City Lite — prefer this for city-level accuracy
+    fn do_lookup_primary(&self, ip: IpAddr) -> Option<GeoResult> {
+        let reader = self.primary.as_ref()?;
+        let result = self.extract_geo(reader, ip)?;
+        // Only use primary result if it has city-level data (not just country)
+        if result.city.is_some() {
+            Some(result)
+        } else {
+            None
+        }
+    }
+
+    /// Fallback to GeoLite2
+    fn do_lookup_fallback(&self, ip: IpAddr) -> Option<GeoResult> {
+        self.extract_geo(&self.fallback, ip)
+    }
+
+    fn extract_geo(&self, reader: &Reader<Vec<u8>>, ip: IpAddr) -> Option<GeoResult> {
+        let city: maxminddb::geoip2::City = reader.lookup(ip).ok()?;
 
         let location = city.location.as_ref()?;
         let latitude = location.latitude?;

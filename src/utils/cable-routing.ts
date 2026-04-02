@@ -62,9 +62,9 @@ function closestIndexOnLine(
 
 // --- Cable route finder ---
 
-// Max distance² from source/dest to cable endpoint (~10° ≈ ~1100km at equator)
-const SRC_THRESHOLD_2 = 100; // 10° squared — generous for source (user is inland)
-const DST_THRESHOLD_2 = 100; // 10° squared — generous for destination too
+// Max distance² from source/dest to cable endpoint (~15° ≈ ~1650km at equator)
+const SRC_THRESHOLD_2 = 225; // 15° squared — generous for source (user may be far inland)
+const DST_THRESHOLD_2 = 225; // 15° squared — generous for destination too
 
 // Minimum cable segment length in indices (avoid tiny or degenerate segments)
 const MIN_SEGMENT_LEN = 3;
@@ -129,7 +129,7 @@ export function findCableRoute(
 // --- Path building ---
 
 /** Low altitude for submarine cable segments — just above sea level */
-const CABLE_ALTITUDE = 20_000; // 20km — just above the surface, below the arcs
+const CABLE_ALTITUDE = 1_000; // 1km — hugs the ocean surface
 
 /**
  * Build a routed 3D path: source → cable entry → cable → cable exit → destination
@@ -144,7 +144,7 @@ export function buildRoutedPath(
   // --- Leg 1: source → cable entry (short arc) ---
   const srcLanding = route.sourceLanding;
   const srcDist = greatCircleDistance(source[1], source[0], srcLanding[1], srcLanding[0]);
-  const srcHeight = arcHeight(srcDist) * 0.5; // lower arc for short leg
+  const srcHeight = arcHeight(srcDist) * 0.2; // very low arc into cable
   const leg1 = interpolateArc(source, srcLanding, srcHeight, 10);
   for (const p of leg1) path.push(p);
 
@@ -156,7 +156,7 @@ export function buildRoutedPath(
   // --- Leg 3: cable exit → destination (short arc) ---
   const dstLanding = route.destLanding;
   const dstDist = greatCircleDistance(dstLanding[1], dstLanding[0], target[1], target[0]);
-  const dstHeight = arcHeight(dstDist) * 0.5;
+  const dstHeight = arcHeight(dstDist) * 0.2;
   const leg3 = interpolateArc(dstLanding, target, dstHeight, 10);
   for (const p of leg3) path.push(p);
 
@@ -217,10 +217,12 @@ const routeCache = new Map<string, CableRoute | null>();
  */
 export function getCachedRoute(
   source: [number, number],
-  target: [number, number]
+  target: [number, number],
+  /** Skip the continent check — used for hop-to-hop segments that may cross ocean within same continent classification */
+  skipContinentCheck = false,
 ): CableRoute | null {
-  // Check if transcontinental first
-  if (!isTranscontinental(source[1], source[0], target[1], target[0])) {
+  // Check if transcontinental (unless skipped for hop routing)
+  if (!skipContinentCheck && !isTranscontinental(source[1], source[0], target[1], target[0])) {
     return null;
   }
 

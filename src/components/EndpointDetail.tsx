@@ -10,8 +10,9 @@ import { FrostedCard } from "../ui/glass";
 import { chevronLeft } from "@mattmattmattmatt/base/primitives/icon/icons/chevron-left";
 import { BandwidthChart, BandwidthHeader } from "./BandwidthChart";
 import type { BandwidthSample } from "../hooks/useBandwidth";
-import type { ResolvedConnection } from "../types/connection";
+import type { ResolvedConnection, TracedRoute } from "../types/connection";
 import type { EndpointData } from "../hooks/useArcAnimation";
+import { RouteTimeline } from "./RouteTimeline";
 import type { EndpointType } from "../utils/endpoint-type";
 import { getBrandIcon, getRawBrandColor, getLuminance } from "../utils/brand-icons";
 
@@ -36,11 +37,17 @@ function formatBytes(bytes: number): string {
 }
 
 interface BandwidthData { samples: BandwidthSample[]; totalIn: number; totalOut: number; }
-interface Props { endpoint: EndpointData; connections: ResolvedConnection[]; bandwidth: BandwidthData; onBack: () => void; }
+interface Props {
+  endpoint: EndpointData;
+  connections: ResolvedConnection[];
+  bandwidth: BandwidthData;
+  onBack: () => void;
+  tracedRoutes?: globalThis.Map<string, TracedRoute>;
+}
 
 const BLOCKED_PAGE_SIZE = 10;
 
-export function EndpointDetail({ endpoint, connections, bandwidth, onBack }: Props) {
+export function EndpointDetail({ endpoint, connections, bandwidth, onBack, tracedRoutes }: Props) {
   const [blockedPage, setBlockedPage] = useState(1);
 
   const matching = useMemo(() => {
@@ -60,7 +67,8 @@ export function EndpointDetail({ endpoint, connections, bandwidth, onBack }: Pro
 
   const totalBytesSent = matching.reduce((s, c) => s + c.bytes_sent, 0);
   const totalBytesRecv = matching.reduce((s, c) => s + c.bytes_received, 0);
-  const processes = [...new Set(matching.map((c) => c.process_name).filter(Boolean))] as string[];
+  const processes = [...new Set(matching.map((c) => c.process_name).filter((p): p is string => p != null))]
+    .map((p) => p.replace(/\\x([0-9a-fA-F]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16))));
   const uniqueIps = [...new Set(matching.map((c) => c.dest_ip))];
   const uniquePorts = [...new Set(matching.map((c) => c.dest_port))].sort((a, b) => a - b);
   const protocols = [...new Set(matching.map((c) => c.protocol))];
@@ -107,6 +115,27 @@ export function EndpointDetail({ endpoint, connections, bandwidth, onBack }: Pro
       <FrostedCard gap={0}>
         <BandwidthChart samples={bandwidth.samples} totalIn={bandwidth.totalIn} totalOut={bandwidth.totalOut} />
       </FrostedCard>
+
+      {/* Route Timeline — show traced hops if available */}
+      {(() => {
+        if (!tracedRoutes) return null;
+        // Find a traced route for any connection to this endpoint
+        const route = matching.map((c) => tracedRoutes.get(c.dest_ip)).find(Boolean);
+        if (!route || route.hops.length === 0) return null;
+        return (
+          <CollapsibleSection title="Route" count={route.hops.length} gap={0}>
+            <RouteTimeline
+              route={route}
+              destination={{
+                city: endpoint.city,
+                country: endpoint.country,
+                ip: endpoint.ip ?? undefined,
+                domain: endpoint.domain,
+              }}
+            />
+          </CollapsibleSection>
+        );
+      })()}
 
       {/* Processes */}
       {processes.length > 0 && (

@@ -158,6 +158,14 @@ impl DnsMapping {
             .and_then(|ip| self.domain_for_ip(&ip))
     }
 
+    /// Get all IP→domain mappings as String→String for sending to NE.
+    pub fn get_ip_domain_mappings(&self) -> std::collections::HashMap<String, String> {
+        self.ip_to_domain
+            .iter()
+            .map(|(ip, (domain, _))| (ip.to_string(), domain.clone()))
+            .collect()
+    }
+
     /// Get recent queries for the frontend.
     pub fn recent_log(&self, limit: usize) -> Vec<DnsQueryLogEntry> {
         self.recent_queries

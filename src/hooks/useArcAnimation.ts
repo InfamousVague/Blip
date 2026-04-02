@@ -3,11 +3,112 @@ import type { ResolvedConnection, BlockedAttempt } from "../types/connection";
 import { greatCircleDistance, arcHeight, pointOnArc, interpolateArc } from "../utils/arc-geometry";
 import { classifyEndpoint, type EndpointType } from "../utils/endpoint-type";
 import { getServiceColor, hexToRgba } from "../utils/service-colors";
+import type { TracedRoute } from "../types/connection";
 import { getCachedRoute, buildRoutedPath, pointAlongPath, type CableRoute } from "../utils/cable-routing";
 
 const FADE_DURATION_MS = 15_000;
 const BLOCK_FLASH_MS = 2_000;
-const BLOCKED_ARC_FADE_MS = 30_000; // blocked arcs stay visible for 30s then fade
+const BLOCKED_ARC_FADE_MS = 120_000; // blocked arcs stay visible for 2 minutes then fade
+/** Minimum distance (km) between consecutive waypoints to be considered a distinct hop.
+ *  Filters out hops that geolocate to the same generic location (e.g. "United States" center). */
+const MIN_HOP_DISTANCE_KM = 150; // Minimum distance between hops to be a distinct waypoint
+
+// Known country centroid coordinates that GeoLite2 returns for ambiguous IPs.
+// Hops at these locations are filtered out as they're not real geographic locations.
+const CENTROID_BLACKLIST: [number, number][] = [
+  [-97.82, 37.75],   // United States center (Kansas)
+  [-2.0, 54.0],      // United Kingdom center
+  [2.0, 47.0],       // France center
+  [10.0, 51.0],      // Germany center
+  [12.5, 42.5],      // Italy center
+  [138.0, 36.0],     // Japan center
+  [134.0, -25.0],    // Australia center
+  [-106.0, 56.0],    // Canada center
+  [105.0, 35.0],     // China center
+  [78.0, 22.0],      // India center
+];
+const CENTROID_RADIUS_KM = 200; // How close to a centroid to be considered ambiguous
+
+/** Build a 3D path from traced route hops.
+ *  Each hop-to-hop segment is a smooth arc.
+ *  Ocean crossings (>4000km) use submarine cable routing when available. */
+function buildTracedPath(
+  source: [number, number],
+  target: [number, number],
+  traced: TracedRoute,
+): { path: [number, number, number][]; usesCable: boolean } {
+  // Collect candidate waypoints with valid coordinates
+  const candidates: [number, number][] = [];
+  for (const hop of traced.hops) {
+    if (hop.lat != null && hop.lon != null) {
+      candidates.push([hop.lon, hop.lat]);
+    }
+  }
+
+  // Minimal hop filtering — only remove centroids and exact duplicates.
+  // Every valid hop becomes a waypoint the arc passes through.
+  const waypoints: [number, number][] = [[source[0], source[1]]];
+
+  for (const pt of candidates) {
+    const prev = waypoints[waypoints.length - 1];
+    const distFromPrev = greatCircleDistance(prev[1], prev[0], pt[1], pt[0]);
+    // Skip exact duplicates (within 30km of previous waypoint)
+    if (distFromPrev < 30) continue;
+    // Skip known country centroids (GeoIP mislocations)
+    const isCentroid = CENTROID_BLACKLIST.some(
+      ([cLon, cLat]) => greatCircleDistance(cLat, cLon, pt[1], pt[0]) < CENTROID_RADIUS_KM
+    );
+    if (isCentroid) continue;
+
+    waypoints.push(pt);
+  }
+
+  // Always end the arc at the GeoIP target so it connects to the endpoint dot.
+  // If the last traced hop is far from the target, the final segment will be a
+  // low flat line (data already arrived, this is just GeoIP disagreement).
+  waypoints.push([target[0], target[1]]);
+
+  // Need at least one intermediate hop to be worth rendering as traced
+  if (waypoints.length <= 2) return { path: [], usesCable: false };
+
+  // Build path: arc per segment, cable routing for ocean crossings
+  const path: [number, number, number][] = [];
+  let usesCable = false;
+  for (let i = 0; i < waypoints.length - 1; i++) {
+    const from = waypoints[i];
+    const to = waypoints[i + 1];
+    const dist = greatCircleDistance(from[1], from[0], to[1], to[0]);
+
+    let segPoints: [number, number, number][];
+
+    // Final segment from last traced hop to GeoIP endpoint — keep it flat/low
+    // when there's a big discrepancy (GeoIP disagrees with traceroute)
+    if (dist > 2000) {
+      // Ocean crossing: try cable routing for transcontinental segments
+      const cableRoute = getCachedRoute(from, to) || (dist > 5000 ? getCachedRoute(from, to, true) : null);
+      if (cableRoute) {
+        segPoints = buildRoutedPath(from, to, cableRoute);
+        usesCable = true;
+      } else {
+        const numPoints = Math.max(20, Math.round(dist / 50));
+        const h = arcHeight(dist) * 0.15;
+        segPoints = interpolateArc(from, to, h, numPoints);
+      }
+    } else {
+      // Normal land arc
+      const numPoints = Math.max(20, Math.round(dist / 50));
+      const h = arcHeight(dist) * 0.4;
+      segPoints = interpolateArc(from, to, h, numPoints);
+    }
+
+    // Append, skip first point on subsequent segments to avoid duplicates
+    for (let j = i === 0 ? 0 : 1; j < segPoints.length; j++) {
+      path.push(segPoints[j]);
+    }
+  }
+
+  return { path, usesCable };
+}
 
 export interface ArcData {
   id: string;
@@ -21,11 +122,19 @@ export interface ArcData {
   midpoint: [number, number, number];
   /** Pre-computed 3D path points for PathLayer rendering */
   path: [number, number, number][];
+  /** True if this arc uses a submarine cable route (render dashed) */
+  cableRouted?: boolean;
 }
 
 export interface BlockedMarkerData {
   position: [number, number, number];
   opacity: number;
+}
+
+export interface BlockedFlashData {
+  id: string;
+  timestamp: number;
+  domain: string;
 }
 
 
@@ -35,6 +144,12 @@ export interface ParticleData {
   width: number;
   /** 0 = upload (user→endpoint), 1 = download (endpoint→user), 2 = neutral */
   direction?: number;
+}
+
+export interface HopMarkerData {
+  position: [number, number, number];
+  color: [number, number, number, number];
+  radius: number;
 }
 
 export interface EndpointData {
@@ -68,13 +183,19 @@ interface ArcMeta {
   classified: ReturnType<typeof classifyEndpoint>;
   /** If routed through a submarine cable, the cable ID and route info */
   cableRoute: CableRoute | null;
+  /** Whether this connection's path uses submarine cables (for dashed rendering) */
+  isCableRouted: boolean;
 }
 
 export function useArcAnimation(
   connections: ResolvedConnection[],
   userLocation: [number, number] | null,
   dnsBlockedCount = 0,
-  blockedAttempts: BlockedAttempt[] = []
+  blockedAttempts: BlockedAttempt[] = [],
+  tracedRoutes: Map<string, TracedRoute> = new Map(),
+  activeServiceFilter: string | null = null,
+  latencyHeatmap = false,
+  focusedEndpointId: string | null = null,
 ) {
   const [output, setOutput] = useState<{
     arcs: ArcData[];
@@ -82,12 +203,16 @@ export function useArcAnimation(
     particles: ParticleData[];
     blockedMarkers: BlockedMarkerData[];
     activeCableIds: string[];
+    hopMarkers: HopMarkerData[];
+    blockedFlashes: BlockedFlashData[];
   }>({
     arcs: [],
     endpoints: [],
     particles: [],
     blockedMarkers: [],
     activeCableIds: [],
+    hopMarkers: [],
+    blockedFlashes: [],
   });
   const rafId = useRef(0);
 
@@ -95,6 +220,12 @@ export function useArcAnimation(
   const seenTrackers = useRef(new Set<string>());
   const flashes = useRef(new Map<string, number>());
   const prevBlockedCount = useRef(0);
+  // Blocked DNS flash events — accumulate and fade
+  const blockedFlashList = useRef<BlockedFlashData[]>([]);
+  const seenBlockedDomains = useRef(new Set<string>());
+  // Draw-on animation: track when each connection was first rendered
+  // drawOnTimes removed — draw-in animation disabled
+  const DRAW_ON_DURATION = 1500; // 1.5 seconds to fully draw the arc
   const dnsBlockedRef = useRef(dnsBlockedCount);
   dnsBlockedRef.current = dnsBlockedCount;
 
@@ -109,11 +240,25 @@ export function useArcAnimation(
       const classified = classifyEndpoint(conn.domain, conn.process_name, conn.dest_ip);
       const svcName = classified.serviceName || classified.type;
       const h = arcHeight(distKm);
-      // Check if this connection should route through a submarine cable
-      const cableRoute = getCachedRoute(userLocation, target);
-      const path = cableRoute
-        ? buildRoutedPath(userLocation, target, cableRoute)
-        : interpolateArc(userLocation, target, h, 40);
+
+      // Priority: traced route (if meaningful hops) > submarine cable > simple arc
+      const traced = tracedRoutes.get(conn.dest_ip);
+      const tracedResult = traced ? buildTracedPath(userLocation, target, traced) : { path: [], usesCable: false };
+      // Try cable routing for ocean crossings when no traced route path exists
+      const cableRoute = tracedResult.path.length > 0 ? null
+        : (getCachedRoute(userLocation, target) || (distKm > 5000 ? getCachedRoute(userLocation, target, true) : null));
+
+      let path: [number, number, number][];
+      let isCableRouted = false;
+      if (tracedResult.path.length > 0) {
+        path = tracedResult.path;
+        isCableRouted = tracedResult.usesCable;
+      } else if (cableRoute) {
+        path = buildRoutedPath(userLocation, target, cableRoute);
+        isCableRouted = true;
+      } else {
+        path = interpolateArc(userLocation, target, h, 40);
+      }
       return {
         conn,
         target,
@@ -123,9 +268,10 @@ export function useArcAnimation(
         svcColor: getServiceColor(svcName),
         classified,
         cableRoute,
+        isCableRouted,
       };
     });
-  }, [connections, userLocation]);
+  }, [connections, userLocation, tracedRoutes]);
 
   // Pre-compute metadata for blocked DNS attempts (these have no ResolvedConnection)
   const blockedArcMetas = useMemo(() => {
@@ -203,7 +349,7 @@ export function useArcAnimation(
 
       const loc = userLocation;
       if (!loc || arcMetas.length === 0) {
-        setOutput({ arcs: [], endpoints, particles: [], blockedMarkers: [], activeCableIds: [] });
+        setOutput({ arcs: [], endpoints, particles: [], blockedMarkers: [], activeCableIds: [], hopMarkers: [], blockedFlashes: [] });
         return;
       }
 
@@ -242,36 +388,63 @@ export function useArcAnimation(
 
         if (conn.active) {
           const phase = conn.first_seen_ms * 0.001;
-          opacity *= 0.85 + 0.15 * Math.sin(now * 0.005 + phase);
+          // Throughput-based pulse: faster and stronger glow for more data
+          const totalBytes = conn.bytes_sent + conn.bytes_received;
+          const throughputScale = totalBytes > 0 ? Math.min(1, Math.log10(totalBytes) / 7) : 0.1;
+          const pulseSpeed = 0.003 + throughputScale * 0.008; // 0.003 (idle) → 0.011 (heavy)
+          const pulseStrength = 0.1 + throughputScale * 0.3; // 0.1 (idle) → 0.4 (heavy)
+          opacity *= (1 - pulseStrength) + pulseStrength * Math.sin(now * pulseSpeed + phase);
+        }
+
+        // Completely hide connections not matching the active service filter
+        if (activeServiceFilter && meta.svcName !== activeServiceFilter) {
+          continue;
+        }
+
+        // Hide connections not going to the focused endpoint
+        if (focusedEndpointId) {
+          const epKey = `${conn.dest_lat.toFixed(2)},${conn.dest_lon.toFixed(2)}`;
+          if (epKey !== focusedEndpointId) continue;
         }
 
         const lineAlpha = Math.round(opacity * 0.15 * 255);
 
-        // Check for active blocked flash
+        // Blocked connections: just show a red X beacon at midpoint (no arc color change)
         const flashStart = flashes.current.get(conn.id);
         let sourceColor: [number, number, number, number];
         let targetColor: [number, number, number, number];
-        let width = 2;
+        const width = 2;
 
-        if (flashStart !== undefined && now - flashStart < BLOCK_FLASH_MS) {
-          const elapsed = now - flashStart;
-          const t = elapsed / BLOCK_FLASH_MS;
-          // Ease-out for smooth fade
-          const flashIntensity = 1 - t * t;
-          // Blend from red to normal white
-          const g = Math.round((1 - flashIntensity) * 255);
-          const b = g;
-          const srcAlpha = Math.round(flashIntensity * 0.4 * 255);
-          const tgtAlpha = Math.max(lineAlpha, Math.round(flashIntensity * 0.6 * 255));
+        if (flashStart !== undefined && now - flashStart >= BLOCK_FLASH_MS) {
+          flashes.current.delete(conn.id);
+        }
 
-          sourceColor = [255, g, b, srcAlpha];
-          targetColor = [255, g, b, tgtAlpha];
-          // Slightly wider during flash
-          width = 2 + flashIntensity;
-        } else {
-          if (flashStart !== undefined) flashes.current.delete(conn.id);
-          sourceColor = [255, 255, 255, 0];
-          targetColor = [255, 255, 255, lineAlpha];
+        {
+
+          // Latency heatmap: color by RTT (green → yellow → red)
+          // Prefer traceroute RTT (more accurate) over TCP SYN RTT
+          const traced = tracedRoutes.get(conn.dest_ip);
+          const traceRtt = traced?.hops?.length
+            ? traced.hops.filter(h => h.rtt_ms != null).pop()?.rtt_ms ?? null
+            : null;
+          const effectiveRtt = traceRtt ?? conn.ping_ms;
+          if (latencyHeatmap && effectiveRtt != null) {
+            const rtt = Math.min(effectiveRtt, 300);
+            const t = rtt / 300;
+            let r: number, g: number, b: number;
+            if (t < 0.33) { // green → yellow
+              r = Math.round(255 * t / 0.33); g = 200; b = 50;
+            } else if (t < 0.67) { // yellow → orange
+              r = 255; g = Math.round(200 * (1 - (t - 0.33) / 0.34)); b = 30;
+            } else { // orange → red
+              r = 255; g = Math.round(80 * (1 - (t - 0.67) / 0.33)); b = 30;
+            }
+            sourceColor = [r, g, b, Math.round(lineAlpha * 0.5)];
+            targetColor = [r, g, b, Math.round(lineAlpha * 2.5)];
+          } else {
+            sourceColor = [255, 255, 255, 0];
+            targetColor = [255, 255, 255, lineAlpha];
+          }
         }
 
         const midpoint = meta.cableRoute
@@ -298,118 +471,22 @@ export function useArcAnimation(
           pingMs: conn.ping_ms,
           midpoint,
           path: meta.path,
+          cableRouted: meta.isCableRouted,
         });
 
-        // Bidirectional particles for active connections — particle count scales with throughput
-        if (conn.active) {
-          const pingVal = conn.ping_ms ?? 100;
-          const cycleSec = Math.max(0.8, Math.min(5, pingVal / 50));
-          const phase = (conn.first_seen_ms * 0.001 + i * 0.37) % 1;
-          const hasByteData = conn.bytes_sent > 0 || conn.bytes_received > 0;
-
-          if (hasByteData) {
-            const totalBytes = conn.bytes_sent + conn.bytes_received;
-
-            // Scale particle count by throughput: 1 particle for < 1KB, up to 5 for > 10MB
-            const logTotal = Math.log10(Math.max(totalBytes, 1));
-            const particleCount = Math.max(1, Math.min(5, Math.floor(logTotal / 1.5)));
-
-            // Service-tinted colors: blend service color with upload/download indicator
-            const svcRgba = hexToRgba(meta.svcColor, 0.9);
-
-            // Helper: get particle position — use path interpolation for routed, pointOnArc for direct
-            const getParticlePos = (t: number): [number, number, number] =>
-              meta.cableRoute
-                ? pointAlongPath(meta.path, t)
-                : pointOnArc(loc, meta.target, meta.height, t);
-
-            // Upload particles: user → endpoint (service color tinted pink)
-            if (conn.bytes_sent > 0) {
-              const logBytes = Math.log10(Math.max(conn.bytes_sent, 1));
-              const particleWidth = Math.max(2, Math.min(8, 1.5 + logBytes * 0.9));
-              const upCount = Math.max(1, Math.ceil(particleCount * (conn.bytes_sent / totalBytes)));
-
-              for (let p = 0; p < upCount; p++) {
-                const pPhase = (phase + p * (1 / upCount)) % 1;
-                const t0 = ((now * 0.001 / cycleSec + pPhase) % 1);
-                const pt = getParticlePos(t0);
-                // Blend service color with pink for upload
-                const r = Math.round(svcRgba[0] * 0.4 + 236 * 0.6);
-                const g = Math.round(svcRgba[1] * 0.4 + 72 * 0.6);
-                const b = Math.round(svcRgba[2] * 0.4 + 153 * 0.6);
-                particles.push({
-                  position: pt,
-                  color: [r, g, b, 217],
-                  width: particleWidth - p * 0.3, // trailing particles slightly smaller
-                  direction: 0,
-                });
-              }
-            }
-
-            // Download particles: endpoint → user (service color tinted indigo)
-            if (conn.bytes_received > 0) {
-              const logBytes = Math.log10(Math.max(conn.bytes_received, 1));
-              const particleWidth = Math.max(2, Math.min(8, 1.5 + logBytes * 0.9));
-              const downCount = Math.max(1, Math.ceil(particleCount * (conn.bytes_received / totalBytes)));
-
-              for (let p = 0; p < downCount; p++) {
-                const pPhase = (phase + 0.5 + p * (1 / downCount)) % 1;
-                const tDown = ((now * 0.001 / cycleSec + pPhase) % 1);
-                const pt = getParticlePos(1 - tDown);
-                // Blend service color with indigo for download
-                const r = Math.round(svcRgba[0] * 0.4 + 99 * 0.6);
-                const g = Math.round(svcRgba[1] * 0.4 + 102 * 0.6);
-                const b = Math.round(svcRgba[2] * 0.4 + 241 * 0.6);
-                particles.push({
-                  position: pt,
-                  color: [r, g, b, 217],
-                  width: particleWidth - p * 0.3,
-                  direction: 1,
-                });
-              }
-            }
-          } else {
-            // No byte data yet — show a single service-colored particle
-            const t0 = ((now * 0.001 / cycleSec + phase) % 1);
-            const pt = meta.cableRoute
-              ? pointAlongPath(meta.path, t0)
-              : pointOnArc(loc, meta.target, meta.height, t0);
-            particles.push({
-              position: pt,
-              color: hexToRgba(meta.svcColor, 0.85),
-              width: 2,
-              direction: 2,
-            });
-          }
-        }
+        // No particles — data flow is shown via the pulsing glow on the arc itself
       }
 
-      // Render blocked DNS attempts as persistent red arcs
+      // Blocked DNS attempts — show only the red X marker at the destination, no arc
       for (const bm of blockedArcMetas) {
         const age = now - bm.attempt.timestamp_ms;
         if (age > BLOCKED_ARC_FADE_MS) continue;
 
         const fadeT = age / BLOCKED_ARC_FADE_MS;
-        const opacity = 1 - fadeT * fadeT; // ease-out fade
-
-        const redAlpha = Math.round(opacity * 0.5 * 255);
-        const midpoint = pointOnArc(loc, bm.target, bm.height, 0.5);
-
-        arcs.push({
-          id: `blocked-${bm.attempt.domain}`,
-          sourcePosition: loc,
-          targetPosition: bm.target,
-          sourceColor: [255, 40, 40, Math.round(opacity * 0.2 * 255)],
-          targetColor: [255, 40, 40, redAlpha],
-          height: bm.height,
-          width: 2,
-          pingMs: null,
-          midpoint,
-          path: bm.path,
-        });
+        const opacity = 1 - fadeT * fadeT;
 
         blockedMarkers.push({
-          position: midpoint,
+          position: [bm.target[0], bm.target[1], 50000], // at the destination, slightly elevated
           opacity,
         });
       }
@@ -423,7 +500,82 @@ export function useArcAnimation(
       }
       const activeCableIds = [...cableIdSet];
 
-      setOutput({ arcs, endpoints, particles, blockedMarkers, activeCableIds });
+      // Build hop markers from traced routes
+      // When an endpoint is focused or a service is filtered, only show hops for matching connections.
+      const hopMarkers: HopMarkerData[] = [];
+      const seenHopKeys = new Set<string>();
+      // Track which dest_ips we've already processed to avoid duplicate hops from
+      // multiple connections to the same server
+      const processedDestIps = new Set<string>();
+      for (const meta of arcMetas) {
+        // Filter by active service
+        if (activeServiceFilter && meta.svcName !== activeServiceFilter) continue;
+        // Filter by focused endpoint
+        if (focusedEndpointId) {
+          const epKey = `${meta.conn.dest_lat.toFixed(2)},${meta.conn.dest_lon.toFixed(2)}`;
+          if (epKey !== focusedEndpointId) continue;
+        }
+        // Only process each dest_ip once (multiple connections may share the same traceroute)
+        if (processedDestIps.has(meta.conn.dest_ip)) continue;
+        processedDestIps.add(meta.conn.dest_ip);
+        const traced = tracedRoutes.get(meta.conn.dest_ip);
+        if (!traced) continue;
+        // Find the last geolocated hop
+        let lastGeoIdx = -1;
+        for (let hi = traced.hops.length - 1; hi >= 0; hi--) {
+          if (traced.hops[hi].lat != null && traced.hops[hi].lon != null) { lastGeoIdx = hi; break; }
+        }
+
+        for (let hi = 0; hi < traced.hops.length; hi++) {
+          const hop = traced.hops[hi];
+          if (hop.lat == null || hop.lon == null) continue;
+          // Skip the last hop ONLY if it's very close to the endpoint dot (within 50km)
+          // Otherwise show it — the endpoint dot is at the GeoIP location which may differ
+          if (hi === lastGeoIdx) {
+            const distToEndpoint = greatCircleDistance(
+              hop.lat, hop.lon, meta.conn.dest_lat, meta.conn.dest_lon
+            );
+            if (distToEndpoint < 50) continue; // close enough, endpoint dot covers it
+          }
+          // Dedup by rounded location across all connections
+          const hopKey = `${(hop.lon * 10 | 0)},${(hop.lat * 10 | 0)}`;
+          if (seenHopKeys.has(hopKey)) continue;
+          seenHopKeys.add(hopKey);
+          const color = hop.rtt_ms == null ? [255, 255, 255, 120]
+            : hop.rtt_ms < 30 ? [34, 197, 94, 160]   // green
+            : hop.rtt_ms < 100 ? [245, 158, 11, 160]  // amber
+            : [239, 68, 68, 160];                      // red
+          hopMarkers.push({
+            position: [hop.lon, hop.lat, 15000],
+            color: color as [number, number, number, number],
+            radius: 8000,
+          });
+        }
+      }
+
+      // Detect new blocked DNS events by watching the blocked count increase
+      const FLASH_DURATION = 3000;
+      const currentBlockedCount = dnsBlockedRef.current;
+      if (currentBlockedCount > prevBlockedCount.current) {
+        const newBlocks = currentBlockedCount - prevBlockedCount.current;
+        // Create flash events for new blocks (cap at 5 per frame to avoid spam)
+        for (let b = 0; b < Math.min(newBlocks, 5); b++) {
+          blockedFlashList.current.push({
+            id: `block-${now}-${b}`,
+            timestamp: now,
+            domain: "",
+          });
+        }
+        prevBlockedCount.current = currentBlockedCount;
+      }
+      // Prune expired flashes
+      blockedFlashList.current = blockedFlashList.current.filter(
+        (f) => now - f.timestamp < FLASH_DURATION
+      );
+
+      const blockedFlashes = [...blockedFlashList.current];
+
+      setOutput({ arcs, endpoints, particles, blockedMarkers, activeCableIds, hopMarkers, blockedFlashes });
     };
 
     rafId.current = requestAnimationFrame(animate);

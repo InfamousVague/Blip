@@ -1,7 +1,8 @@
 import Foundation
 import os.log
 
-/// Connection event sent from NE to the main Blip app.
+// MARK: - Event Types (NE → App)
+
 struct NEConnectionEvent: Codable {
     let sourceAppId: String
     let sourcePid: Int
@@ -22,7 +23,6 @@ struct NEConnectionEvent: Codable {
     }
 }
 
-/// DNS query event sent from NE DNS proxy to the main Blip app.
 struct NEDnsEvent: Codable {
     let domain: String
     let queryType: String
@@ -43,7 +43,6 @@ struct NEDnsEvent: Codable {
     }
 }
 
-/// Per-flow byte update sent to the main app.
 struct NEFlowUpdateEvent: Codable {
     let destIp: String
     let destPort: Int
@@ -62,55 +61,121 @@ struct NEFlowUpdateEvent: Codable {
     }
 }
 
-/// Wrapper enum for typed events over the socket.
-/// The Rust side distinguishes by the "type" field.
+/// Wrapper for typed events over the socket.
 struct NEEvent: Codable {
     let type_: String
     let connection: NEConnectionEvent?
     let dns: NEDnsEvent?
     let flow_update: NEFlowUpdateEvent?
+    // Extended fields for v2
+    let verdict: String?
+    let matched_rule_id: String?
+    let domain: String?
+    let approval_request: [String: AnyCodable]?
 
     enum CodingKeys: String, CodingKey {
         case type_ = "type"
         case connection
         case dns
         case flow_update
+        case verdict
+        case matched_rule_id
+        case domain
+        case approval_request
+    }
+
+    init(type_: String, connection: NEConnectionEvent? = nil, dns: NEDnsEvent? = nil,
+         flow_update: NEFlowUpdateEvent? = nil, verdict: String? = nil,
+         matched_rule_id: String? = nil, domain: String? = nil,
+         approval_request: [String: AnyCodable]? = nil) {
+        self.type_ = type_
+        self.connection = connection
+        self.dns = dns
+        self.flow_update = flow_update
+        self.verdict = verdict
+        self.matched_rule_id = matched_rule_id
+        self.domain = domain
+        self.approval_request = approval_request
     }
 }
 
-/// Firewall rule: allow, deny, or unspecified (default pass-through)
-struct FirewallRule: Codable {
-    let app_id: String       // Bundle ID or "*" for global
-    let domain: String?      // Optional domain pattern
-    let action: String       // "allow", "deny", "unspecified"
+/// Type-erased Codable for heterogeneous dictionaries.
+struct AnyCodable: Codable {
+    let value: Any
+
+    init(_ value: Any) { self.value = value }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let v = try? container.decode(String.self) { value = v }
+        else if let v = try? container.decode(Int.self) { value = v }
+        else if let v = try? container.decode(UInt64.self) { value = v }
+        else if let v = try? container.decode(Double.self) { value = v }
+        else if let v = try? container.decode(Bool.self) { value = v }
+        else { value = "" }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        if let v = value as? String { try container.encode(v) }
+        else if let v = value as? Int { try container.encode(v) }
+        else if let v = value as? UInt64 { try container.encode(v) }
+        else if let v = value as? UInt16 { try container.encode(v) }
+        else if let v = value as? Double { try container.encode(v) }
+        else if let v = value as? Bool { try container.encode(v) }
+        else { try container.encode(String(describing: value)) }
+    }
+}
+
+// MARK: - App → NE Message Types
+
+/// Legacy firewall rule format (kept for backwards compat).
+struct FirewallRuleMsg: Codable {
+    let app_id: String
+    let domain: String?
+    let action: String
 }
 
 /// Message from the main app to the NE (received via socket).
 struct NEAppMessage: Codable {
     let type_: String
-    let domains: [String]?       // For blocklist_sync
-    let ips: [String]?           // For blocked_ips
-    let rules: [FirewallRule]?   // For firewall_rules
+    let domains: [String]?
+    let ips: [String]?
+    let rules: [FirewallRuleMsg]?
+    // New v2 fields
+    let mode: String?
+    let kill_switch: Bool?
+    let active_profile_id: String?
+    let config_rules: [[String: AnyCodable]]?
+    let mappings: [String: String]?
+    let active: Bool?
+    let request_id: String?
+    let action: String?
 
     enum CodingKeys: String, CodingKey {
         case type_ = "type"
-        case domains
-        case ips
-        case rules
+        case domains, ips, rules
+        case mode, kill_switch, active_profile_id
+        case config_rules, mappings, active
+        case request_id, action
     }
 }
 
-/// Delegate for handling messages from the main app.
+// MARK: - Delegate Protocol
+
 protocol SocketBridgeDelegate: AnyObject {
     func socketBridge(_ bridge: SocketBridge, didReceiveBlocklistSync domains: Set<String>)
     func socketBridge(_ bridge: SocketBridge, didReceiveBlockedIPs ips: Set<String>)
-    func socketBridge(_ bridge: SocketBridge, didReceiveFirewallRules rules: [FirewallRule])
+    func socketBridge(_ bridge: SocketBridge, didReceiveFirewallRules rules: [FirewallRuleMsg])
+    func socketBridge(_ bridge: SocketBridge, didReceiveFirewallConfig mode: String, killSwitch: Bool,
+                      profileId: String, rules: [[String: Any]])
+    func socketBridge(_ bridge: SocketBridge, didReceiveDNSCacheUpdate mappings: [String: String])
+    func socketBridge(_ bridge: SocketBridge, didReceiveKillSwitch active: Bool)
+    func socketBridge(_ bridge: SocketBridge, didReceiveApprovalVerdict requestId: String, action: String)
 }
 
-/// Unix domain socket client that sends events to the main Blip app.
-/// The main app listens at ~/.blip/ne.sock.
-/// Bidirectional: sends events to app, receives blocklist updates from app.
-/// Debug log to a file readable by the user (NE runs as root, os_log is suppressed)
+// MARK: - Debug Logging
+
 let neDebugLogPath = "/private/var/tmp/blip-ne-debug.log"
 func neDebugLog(_ msg: String) {
     let ts = ISO8601DateFormatter().string(from: Date())
@@ -126,6 +191,8 @@ func neDebugLog(_ msg: String) {
     }
 }
 
+// MARK: - Socket Bridge
+
 class SocketBridge {
 
     private let log = OSLog(subsystem: "com.infamousvague.blip.network-extension", category: "socket")
@@ -139,8 +206,6 @@ class SocketBridge {
     weak var delegate: SocketBridgeDelegate?
 
     init() {
-        // Use a fixed path accessible to both the NE (runs as root) and the main app (runs as user).
-        // homeDirectoryForCurrentUser returns /var/root inside the NE process, not the user's home.
         self.socketPath = "/private/var/tmp/blip-ne.sock"
     }
 
@@ -158,65 +223,82 @@ class SocketBridge {
         }
     }
 
-    func send(event: NEConnectionEvent) {
-        let wrapped = NEEvent(type_: "connection", connection: event, dns: nil, flow_update: nil)
-        sendRaw(wrapped)
+    // MARK: - Send Methods
+
+    func send(event: NEConnectionEvent, verdict: String? = nil,
+              matchedRuleId: String? = nil, domain: String? = nil) {
+        let wrapped = NEEvent(type_: "connection", connection: event,
+                              verdict: verdict, matched_rule_id: matchedRuleId, domain: domain)
+        sendEncodable(wrapped)
     }
 
     func send(dnsEvent: NEDnsEvent) {
-        let wrapped = NEEvent(type_: "dns", connection: nil, dns: dnsEvent, flow_update: nil)
-        sendRaw(wrapped)
+        let wrapped = NEEvent(type_: "dns", dns: dnsEvent)
+        sendEncodable(wrapped)
     }
 
     func send(flowUpdate: NEFlowUpdateEvent) {
-        let wrapped = NEEvent(type_: "flow_update", connection: nil, dns: nil, flow_update: flowUpdate)
-        sendRaw(wrapped)
+        let wrapped = NEEvent(type_: "flow_update", flow_update: flowUpdate)
+        sendEncodable(wrapped)
     }
 
-    private func sendRaw(_ event: NEEvent) {
+    func sendApprovalRequest(_ request: [String: Any]) {
+        let codableRequest = request.mapValues { AnyCodable($0) }
+        let wrapped = NEEvent(type_: "approval_request", approval_request: codableRequest)
+        sendEncodable(wrapped)
+    }
+
+    func sendRaw(jsonDict: [String: Any]) {
         queue.async { [weak self] in
             guard let self = self, self.isConnected, let fh = self.fileHandle else {
-                // Not connected — silently drop event, try to reconnect
-                if self?.isConnected == false {
-                    self?.connectInternal()
+                if self?.isConnected == false { self?.connectInternal() }
+                return
+            }
+            do {
+                var data = try JSONSerialization.data(withJSONObject: jsonDict)
+                data.append(0x0A)
+                let fd = fh.fileDescriptor
+                data.withUnsafeBytes { ptr in
+                    guard let base = ptr.baseAddress else { return }
+                    let _ = Darwin.write(fd, base, ptr.count)
                 }
+            } catch {}
+        }
+    }
+
+    private func sendEncodable<T: Encodable>(_ value: T) {
+        queue.async { [weak self] in
+            guard let self = self, self.isConnected, let fh = self.fileHandle else {
+                if self?.isConnected == false { self?.connectInternal() }
                 return
             }
 
             do {
-                var data = try self.encoder.encode(event)
-                data.append(0x0A) // newline delimiter
-                // Non-blocking write — if it fails, silently drop and reconnect.
-                // NEVER let a socket issue propagate back to the filter provider.
+                var data = try self.encoder.encode(value)
+                data.append(0x0A)
                 let fd = fh.fileDescriptor
                 let written = data.withUnsafeBytes { ptr -> Int in
                     guard let base = ptr.baseAddress else { return -1 }
                     return Darwin.write(fd, base, ptr.count)
                 }
                 if written < 0 {
-                    // EAGAIN (non-blocking full buffer) or EPIPE (broken) — drop silently
                     if errno != EAGAIN {
                         self.closeSocket()
                         self.scheduleReconnect()
                     }
-                    // Either way, the event is dropped — this is fine for monitoring
                 }
-            } catch {
-                // JSON encoding failure — should never happen, but silently drop
-            }
+            } catch {}
         }
     }
 
-    // MARK: - Internal
+    // MARK: - Connection
 
     private func connectInternal() {
         guard !isConnected else { return }
 
         neDebugLog("connectInternal: attempting to connect to \(socketPath)")
 
-        // Check if socket file exists
         let exists = FileManager.default.fileExists(atPath: socketPath)
-        neDebugLog("Socket file exists: \(exists)")
         if !exists {
             neDebugLog("Socket file not found, scheduling reconnect")
             scheduleReconnect()
@@ -226,20 +308,15 @@ class SocketBridge {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else {
             neDebugLog("Failed to create socket fd: errno=\(errno)")
-            os_log("Failed to create socket: %d", log: log, type: .error, errno)
             scheduleReconnect()
             return
         }
-
-        neDebugLog("Socket fd created: \(fd)")
 
         var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
 
         let pathBytes = socketPath.utf8CString
         guard pathBytes.count <= MemoryLayout.size(ofValue: addr.sun_path) else {
-            neDebugLog("Socket path too long: \(pathBytes.count)")
-            os_log("Socket path too long", log: log, type: .error)
             close(fd)
             return
         }
@@ -260,13 +337,11 @@ class SocketBridge {
 
         if result < 0 {
             neDebugLog("connect() failed: errno=\(errno) (\(String(cString: strerror(errno))))")
-            os_log("Failed to connect to %{public}@: %d", log: log, type: .debug, socketPath, errno)
             close(fd)
             scheduleReconnect()
             return
         }
 
-        // Set socket to non-blocking so writes never stall
         let flags = fcntl(fd, F_GETFL)
         _ = fcntl(fd, F_SETFL, flags | O_NONBLOCK)
 
@@ -277,17 +352,24 @@ class SocketBridge {
         reconnectTimer = nil
         os_log("Connected to main app at %{public}@", log: log, type: .info, socketPath)
 
-        // Start reading messages from the app (blocklist sync, blocked IPs)
+        // Send NE version hello so the app can detect stale NE installs
+        let neVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
+        let neBuild = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
+        sendRaw(jsonDict: [
+            "type": "ne_hello",
+            "ne_version": neVersion,
+            "ne_build": neBuild,
+            "features": ["rule_engine", "bidirectional", "dns_cache", "kill_switch"]
+        ])
+
         startReadLoop(fd: fd)
     }
 
-    /// Read newline-delimited JSON messages from the app on a separate queue.
-    /// Uses select() to wait for data since the fd is non-blocking.
+    // MARK: - Read Loop (bidirectional)
+
     private func startReadLoop(fd: Int32) {
-        // Dup the fd for reading so we can set it to blocking independently
         let readFd = dup(fd)
         guard readFd >= 0 else { return }
-        // Set read fd to blocking
         let flags = fcntl(readFd, F_GETFL)
         _ = fcntl(readFd, F_SETFL, flags & ~O_NONBLOCK)
 
@@ -312,40 +394,92 @@ class SocketBridge {
 
                 buffer.append(contentsOf: readBuf.prefix(n))
 
-                // Process complete lines
                 while let newlineIdx = buffer.firstIndex(of: 0x0A) {
                     let lineData = buffer.prefix(upTo: newlineIdx)
                     buffer = Data(buffer.suffix(from: buffer.index(after: newlineIdx)))
 
                     guard !lineData.isEmpty else { continue }
-                    do {
-                        let msg = try JSONDecoder().decode(NEAppMessage.self, from: lineData)
-                        self.handleAppMessage(msg)
-                    } catch {
-                        // Silently ignore malformed messages
+
+                    // Try v2 format first (raw JSON), fall back to legacy NEAppMessage
+                    if let json = try? JSONSerialization.jsonObject(with: Data(lineData)) as? [String: Any],
+                       let type = json["type"] as? String {
+                        self.handleAppMessageV2(type: type, json: json)
+                    } else {
+                        // Legacy decode
+                        if let msg = try? JSONDecoder().decode(NEAppMessage.self, from: Data(lineData)) {
+                            self.handleAppMessageLegacy(msg)
+                        }
                     }
                 }
             }
         }
     }
 
-    private func handleAppMessage(_ msg: NEAppMessage) {
+    private func handleAppMessageV2(type: String, json: [String: Any]) {
+        switch type {
+        case "firewall_config":
+            let mode = json["mode"] as? String ?? "ask"
+            let killSwitch = json["kill_switch"] as? Bool ?? false
+            let profileId = json["active_profile_id"] as? String ?? "default"
+            let rules = json["rules"] as? [[String: Any]] ?? []
+            delegate?.socketBridge(self, didReceiveFirewallConfig: mode, killSwitch: killSwitch,
+                                  profileId: profileId, rules: rules)
+
+        case "dns_cache_update":
+            if let mappings = json["mappings"] as? [String: String] {
+                delegate?.socketBridge(self, didReceiveDNSCacheUpdate: mappings)
+            }
+
+        case "kill_switch":
+            if let active = json["active"] as? Bool {
+                delegate?.socketBridge(self, didReceiveKillSwitch: active)
+            }
+
+        case "approval_verdict":
+            if let requestId = json["request_id"] as? String,
+               let action = json["action"] as? String {
+                delegate?.socketBridge(self, didReceiveApprovalVerdict: requestId, action: action)
+            }
+
+        case "blocklist_sync":
+            if let domains = json["domains"] as? [String] {
+                let domainSet = Set(domains.map { $0.lowercased() })
+                delegate?.socketBridge(self, didReceiveBlocklistSync: domainSet)
+            }
+
+        case "blocked_ips":
+            if let ips = json["ips"] as? [String] {
+                delegate?.socketBridge(self, didReceiveBlockedIPs: Set(ips))
+            }
+
+        case "firewall_rules":
+            // Legacy format — decode as FirewallRuleMsg
+            if let rulesJson = json["rules"] as? [[String: Any]] {
+                let rules: [FirewallRuleMsg] = rulesJson.compactMap { dict in
+                    guard let appId = dict["app_id"] as? String,
+                          let action = dict["action"] as? String else { return nil }
+                    return FirewallRuleMsg(app_id: appId, domain: dict["domain"] as? String, action: action)
+                }
+                delegate?.socketBridge(self, didReceiveFirewallRules: rules)
+            }
+
+        default:
+            break
+        }
+    }
+
+    private func handleAppMessageLegacy(_ msg: NEAppMessage) {
         switch msg.type_ {
         case "blocklist_sync":
             if let domains = msg.domains {
-                let domainSet = Set(domains.map { $0.lowercased() })
-                os_log("Received blocklist sync: %d domains", log: log, type: .info, domainSet.count)
-                delegate?.socketBridge(self, didReceiveBlocklistSync: domainSet)
+                delegate?.socketBridge(self, didReceiveBlocklistSync: Set(domains.map { $0.lowercased() }))
             }
         case "blocked_ips":
             if let ips = msg.ips {
-                let ipSet = Set(ips)
-                os_log("Received blocked IPs: %d IPs", log: log, type: .info, ipSet.count)
-                delegate?.socketBridge(self, didReceiveBlockedIPs: ipSet)
+                delegate?.socketBridge(self, didReceiveBlockedIPs: Set(ips))
             }
         case "firewall_rules":
             if let rules = msg.rules {
-                neDebugLog("Received \(rules.count) firewall rules")
                 delegate?.socketBridge(self, didReceiveFirewallRules: rules)
             }
         default:
@@ -360,7 +494,6 @@ class SocketBridge {
 
     private func scheduleReconnect() {
         guard reconnectTimer == nil else { return }
-
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now() + 2.0, repeating: 2.0)
         timer.setEventHandler { [weak self] in

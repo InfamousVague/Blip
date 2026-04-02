@@ -15,6 +15,8 @@ mod geoip;
 mod ne_bridge;
 mod speedtest;
 mod dock_icon;
+pub mod firewall;
+pub mod traceroute;
 
 use blocklist::{BlocklistInfo, BlocklistStore};
 use capture::nettop::{self, ConnectionState, ConnectionStore};
@@ -46,6 +48,8 @@ struct AppState {
     geoip: Arc<StdRwLock<Option<Arc<GeoIp>>>>,
     speed_test_result: Arc<Mutex<Option<speedtest::SpeedTestResult>>>,
     speed_test_running: Arc<std::sync::atomic::AtomicBool>,
+    /// Broadcast handle for pushing config changes to connected NE clients.
+    ne_broadcast: Arc<Mutex<Option<ne_bridge::NEBroadcast>>>,
 }
 
 /// Returns current interface byte counters (cumulative)
@@ -212,7 +216,7 @@ fn start_capture(app: tauri::AppHandle, state: tauri::State<AppState>) {
 
         // Start NE bridge socket server (listens for Network Extension connections)
         let ne_bridge = ne_bridge::NEBridge::new();
-        if let Err(e) = ne_bridge.start(
+        match ne_bridge.start(
             store.clone(),
             geoip.clone(),
             blocklists.clone(),
@@ -222,7 +226,17 @@ fn start_capture(app: tauri::AppHandle, state: tauri::State<AppState>) {
             db_for_seed.clone(),
             app_handle_for_ne.clone(),
         ).await {
-            log::warn!("NE bridge failed to start (continuing without): {}", e);
+            Ok(broadcast) => {
+                // Store the broadcast handle so we can push config changes to NE
+                let state: tauri::State<AppState> = app_handle_for_ne.state();
+                if let Ok(mut ne_bc) = state.ne_broadcast.lock() {
+                    *ne_bc = Some(broadcast);
+                }
+                log::info!("NE bridge started with broadcast handle");
+            }
+            Err(e) => {
+                log::warn!("NE bridge failed to start (continuing without): {}", e);
+            }
         }
 
         // Start periodic expired-rule cleanup (every 60s)
@@ -317,7 +331,25 @@ fn start_capture(app: tauri::AppHandle, state: tauri::State<AppState>) {
             log::info!("Seeded {} IP→domain mappings from DB", count);
         }
 
-        nettop::start_capture(store, geoip, dns, running, elevated, db_writer, blocklists, enricher, dns_mapping).await;
+        // Spawn background route tracing manager
+        {
+            let trace_store = store.clone();
+            let trace_db = db_for_seed.clone();
+            let trace_geoip = geoip_slot.clone();
+            let trace_enricher = enricher.clone();
+            let trace_running = running.clone();
+            tokio::spawn(async move {
+                traceroute::start_tracing_manager(
+                    trace_store, trace_db, trace_geoip, trace_enricher, trace_running,
+                ).await;
+            });
+        }
+
+        // Read DNS preference
+        let resolve_dns = db_for_seed.get_preference("dns_resolve_hostnames")
+            .ok().flatten().unwrap_or_else(|| "true".to_string()) == "true";
+
+        nettop::start_capture(store, geoip, dns, running, elevated, db_writer, blocklists, enricher, dns_mapping, resolve_dns).await;
     });
 }
 
@@ -860,7 +892,7 @@ async fn get_firewall_mode(state: tauri::State<'_, AppState>) -> Result<String, 
     let mode = tokio::task::spawn_blocking(move || db.get_preference("firewall_mode"))
         .await
         .map_err(|e| format!("Task error: {}", e))??;
-    Ok(mode.unwrap_or_else(|| "silent_allow".to_string()))
+    Ok(mode.unwrap_or_else(|| "ask".to_string()))
 }
 
 #[tauri::command]
@@ -868,7 +900,10 @@ async fn set_firewall_mode(state: tauri::State<'_, AppState>, mode: String) -> R
     let db = state.db.clone();
     tokio::task::spawn_blocking(move || db.set_preference("firewall_mode", &mode))
         .await
-        .map_err(|e| format!("Task error: {}", e))?
+        .map_err(|e| format!("Task error: {}", e))??;
+    // Push the mode change to connected NE clients immediately
+    sync_firewall_rules_to_ne(&state).await;
+    Ok(())
 }
 
 #[tauri::command]
@@ -909,26 +944,318 @@ async fn import_firewall_rules(state: tauri::State<'_, AppState>, json: String) 
     Ok(count)
 }
 
-/// Helper: sync all firewall rules to NE via socket bridge
+/// Helper: sync firewall config (mode + rules + kill switch) to NE via broadcast.
+/// This pushes the full config to ALL connected NE clients immediately.
 async fn sync_firewall_rules_to_ne(state: &AppState) {
     let db = state.db.clone();
-    if let Ok(rules) = tokio::task::spawn_blocking(move || db.get_firewall_rules()).await {
-        if let Ok(rules) = rules {
-            // Write the rules as JSON to the NE socket — the NE bridge will pick them up
-            // For now, store them so the NE bridge sends them on next connect
-            let _ = state.db.set_preference(
-                "firewall_rules_json",
-                &serde_json::to_string(&rules.iter().map(|r| {
-                    let mut entry = serde_json::json!({"app_id": r.app_id, "action": r.action});
-                    if let Some(ref d) = r.domain { entry["domain"] = serde_json::json!(d); }
-                    if let Some(p) = r.port { entry["port"] = serde_json::json!(p); }
-                    if let Some(ref p) = r.protocol { entry["protocol"] = serde_json::json!(p); }
-                    entry
-                }).collect::<Vec<_>>()).unwrap_or_default(),
-            );
-            log::info!("Firewall rules synced: {} rules", rules.len());
+    let config = tokio::task::spawn_blocking(move || {
+        let profile_id = db.get_active_profile_id();
+        let mode = db.get_preference("firewall_mode")
+            .ok().flatten().unwrap_or_else(|| "ask".to_string());
+        let kill_switch = db.get_preference("kill_switch_active")
+            .ok().flatten().map(|v| v == "true").unwrap_or(false);
+        let rules = db.get_all_rules_for_ne(&profile_id).unwrap_or_default();
+
+        serde_json::json!({
+            "type": "firewall_config",
+            "mode": mode,
+            "kill_switch": kill_switch,
+            "active_profile_id": profile_id,
+            "rules": rules
+        })
+    }).await;
+
+    if let Ok(config) = config {
+        if let Ok(ne_bc) = state.ne_broadcast.lock() {
+            if let Some(ref broadcast) = *ne_bc {
+                broadcast.send_firewall_config(config);
+                log::info!("Firewall config broadcast to NE");
+            } else {
+                log::debug!("No NE broadcast handle — NE not connected yet");
+            }
         }
     }
+}
+
+// ---- Firewall v2 commands ----
+
+#[tauri::command]
+async fn get_firewall_rules_v2(
+    state: tauri::State<'_, AppState>,
+    profile_id: Option<String>,
+) -> Result<Vec<firewall::types::FirewallRule>, String> {
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || db.get_firewall_rules_v2(profile_id.as_deref()))
+        .await
+        .map_err(|e| format!("Task error: {}", e))?
+}
+
+#[tauri::command]
+async fn create_firewall_rule_v2(
+    state: tauri::State<'_, AppState>,
+    rule: firewall::types::NewRuleRequest,
+) -> Result<firewall::types::FirewallRule, String> {
+    let db = state.db.clone();
+    let result = tokio::task::spawn_blocking(move || db.create_firewall_rule_v2(&rule))
+        .await
+        .map_err(|e| format!("Task error: {}", e))??;
+    sync_firewall_rules_to_ne(&state).await;
+    Ok(result)
+}
+
+#[tauri::command]
+async fn update_firewall_rule_v2(
+    state: tauri::State<'_, AppState>,
+    id: String,
+    action: Option<String>,
+    domain_pattern: Option<String>,
+    domain_match_type: Option<String>,
+    port: Option<String>,
+    protocol: Option<String>,
+    direction: Option<String>,
+    lifetime: Option<String>,
+    enabled: Option<bool>,
+    priority: Option<i32>,
+) -> Result<firewall::types::FirewallRule, String> {
+    let db = state.db.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        db.update_firewall_rule_v2(
+            &id,
+            action.as_deref(),
+            domain_pattern.as_deref(),
+            domain_match_type.as_deref(),
+            port.as_deref(),
+            protocol.as_deref(),
+            direction.as_deref(),
+            lifetime.as_deref(),
+            enabled,
+            priority,
+        )
+    })
+    .await
+    .map_err(|e| format!("Task error: {}", e))??;
+    sync_firewall_rules_to_ne(&state).await;
+    Ok(result)
+}
+
+#[tauri::command]
+async fn delete_firewall_rule_v2(state: tauri::State<'_, AppState>, id: String) -> Result<(), String> {
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || db.delete_firewall_rule_v2(&id))
+        .await
+        .map_err(|e| format!("Task error: {}", e))??;
+    sync_firewall_rules_to_ne(&state).await;
+    Ok(())
+}
+
+#[tauri::command]
+async fn check_rule_conflicts(
+    state: tauri::State<'_, AppState>,
+    rule: firewall::types::NewRuleRequest,
+) -> Result<Vec<firewall::types::RuleConflict>, String> {
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || db.check_rule_conflicts(&rule))
+        .await
+        .map_err(|e| format!("Task error: {}", e))?
+}
+
+#[tauri::command]
+async fn get_app_registry(state: tauri::State<'_, AppState>) -> Result<Vec<firewall::types::AppInfo>, String> {
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || db.get_app_registry())
+        .await
+        .map_err(|e| format!("Task error: {}", e))?
+}
+
+#[tauri::command]
+async fn get_network_profiles(state: tauri::State<'_, AppState>) -> Result<Vec<firewall::types::NetworkProfile>, String> {
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || db.get_network_profiles())
+        .await
+        .map_err(|e| format!("Task error: {}", e))?
+}
+
+#[tauri::command]
+async fn create_network_profile(
+    state: tauri::State<'_, AppState>,
+    name: String,
+    description: Option<String>,
+    auto_switch_ssid: Option<String>,
+    auto_switch_vpn: bool,
+) -> Result<firewall::types::NetworkProfile, String> {
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        db.create_network_profile(&name, description.as_deref(), auto_switch_ssid.as_deref(), auto_switch_vpn)
+    })
+    .await
+    .map_err(|e| format!("Task error: {}", e))?
+}
+
+#[tauri::command]
+async fn delete_network_profile(state: tauri::State<'_, AppState>, id: String) -> Result<(), String> {
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || db.delete_network_profile(&id))
+        .await
+        .map_err(|e| format!("Task error: {}", e))?
+}
+
+#[tauri::command]
+async fn switch_network_profile(state: tauri::State<'_, AppState>, id: String) -> Result<(), String> {
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || db.switch_network_profile(&id))
+        .await
+        .map_err(|e| format!("Task error: {}", e))??;
+    sync_firewall_rules_to_ne(&state).await;
+    Ok(())
+}
+
+#[tauri::command]
+async fn get_block_history(
+    state: tauri::State<'_, AppState>,
+    limit: Option<usize>,
+) -> Result<Vec<firewall::types::BlockHistoryEntry>, String> {
+    let db = state.db.clone();
+    let lim = limit.unwrap_or(100);
+    tokio::task::spawn_blocking(move || db.get_block_history(lim))
+        .await
+        .map_err(|e| format!("Task error: {}", e))?
+}
+
+#[tauri::command]
+async fn get_block_stats_hourly(
+    state: tauri::State<'_, AppState>,
+    hours_back: u32,
+) -> Result<Vec<firewall::types::BlockStatsHourly>, String> {
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || db.get_block_stats_hourly(hours_back))
+        .await
+        .map_err(|e| format!("Task error: {}", e))?
+}
+
+#[tauri::command]
+async fn get_privacy_scores(state: tauri::State<'_, AppState>) -> Result<Vec<firewall::types::PrivacyScore>, String> {
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || db.get_all_privacy_scores())
+        .await
+        .map_err(|e| format!("Task error: {}", e))?
+}
+
+#[tauri::command]
+async fn get_firewall_state(state: tauri::State<'_, AppState>) -> Result<firewall::types::FirewallState, String> {
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        let mode = db.get_preference("firewall_mode")
+            .ok().flatten().unwrap_or_else(|| "ask".to_string());
+        let kill_switch = db.get_preference("kill_switch_active")
+            .ok().flatten().map(|v| v == "true").unwrap_or(false);
+        let profile_id = db.get_active_profile_id();
+        let wizard_completed = db.get_preference("firewall_wizard_completed")
+            .ok().flatten().map(|v| v == "true").unwrap_or(false);
+
+        Ok(firewall::types::FirewallState {
+            mode,
+            kill_switch_active: kill_switch,
+            active_profile_id: profile_id,
+            wizard_completed,
+        })
+    })
+    .await
+    .map_err(|e| format!("Task error: {}", e))?
+}
+
+#[tauri::command]
+async fn toggle_kill_switch(state: tauri::State<'_, AppState>, active: bool) -> Result<(), String> {
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || db.set_preference("kill_switch_active", if active { "true" } else { "false" }))
+        .await
+        .map_err(|e| format!("Task error: {}", e))??;
+    // Sync to NE immediately
+    sync_firewall_rules_to_ne(&state).await;
+    Ok(())
+}
+
+#[tauri::command]
+async fn complete_setup_wizard(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || db.set_preference("firewall_wizard_completed", "true"))
+        .await
+        .map_err(|e| format!("Task error: {}", e))?
+}
+
+#[tauri::command]
+async fn respond_to_approval(
+    state: tauri::State<'_, AppState>,
+    request_id: String,
+    action: String,
+    lifetime: String,
+    app_id: String,
+    app_name: String,
+    domain: Option<String>,
+    dest_port: Option<u16>,
+    protocol: Option<String>,
+) -> Result<(), String> {
+    // Create a rule based on the approval response
+    if action != "dismiss" {
+        let db = state.db.clone();
+        let rule_action = action.clone();
+        let rule_lifetime = lifetime.clone();
+        let rule_domain = domain.clone();
+        let rule_port = dest_port.map(|p| p.to_string());
+        let rule_protocol = protocol.clone();
+        tokio::task::spawn_blocking(move || {
+            db.create_firewall_rule_v2(&firewall::types::NewRuleRequest {
+                profile_id: None,
+                app_id,
+                app_name,
+                app_path: None,
+                action: rule_action,
+                domain_pattern: rule_domain,
+                domain_match_type: None, // Will be inferred as "exact" if domain is set
+                port: rule_port,
+                protocol: rule_protocol,
+                direction: None,
+                lifetime: Some(rule_lifetime),
+                priority: None,
+            })
+        })
+        .await
+        .map_err(|e| format!("Task error: {}", e))??;
+    }
+
+    sync_firewall_rules_to_ne(&state).await;
+    Ok(())
+}
+
+#[tauri::command]
+async fn get_system_whitelist() -> Result<Vec<String>, String> {
+    Ok(firewall::whitelist::get_system_whitelist())
+}
+
+#[tauri::command]
+async fn export_firewall_config(state: tauri::State<'_, AppState>) -> Result<String, String> {
+    let db = state.db.clone();
+    let rules = tokio::task::spawn_blocking(move || db.get_firewall_rules_v2(None))
+        .await
+        .map_err(|e| format!("Task error: {}", e))??;
+    serde_json::to_string_pretty(&rules).map_err(|e| format!("Serialize error: {}", e))
+}
+
+#[tauri::command]
+async fn import_firewall_config(state: tauri::State<'_, AppState>, json: String) -> Result<usize, String> {
+    let rules: Vec<firewall::types::NewRuleRequest> = serde_json::from_str(&json)
+        .map_err(|e| format!("Invalid JSON: {}", e))?;
+    let count = rules.len();
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        for rule in &rules {
+            db.create_firewall_rule_v2(rule)?;
+        }
+        Ok::<(), String>(())
+    })
+    .await
+    .map_err(|e| format!("Task error: {}", e))??;
+    sync_firewall_rules_to_ne(&state).await;
+    Ok(count)
 }
 
 // ---- App icon resolution ----
@@ -1189,34 +1516,154 @@ async fn kill_process(pid: u32) -> Result<bool, String> {
     .map_err(|e| format!("Task error: {}", e))?
 }
 
-// --- Offline tile serving ---
+// --- Offline tile serving via local HTTP ---
 
-use std::io::Cursor;
 use std::collections::HashMap;
 
-struct TileReaderState {
-    readers: std::sync::Mutex<HashMap<String, Vec<u8>>>,
+/// State holding the local tile server port (0 = not started / no pmtiles found)
+struct TileServerState {
+    port: std::sync::Arc<std::sync::atomic::AtomicU16>,
 }
 
-fn get_pmtiles_data(app: &tauri::AppHandle) -> &TileReaderState {
-    app.state::<TileReaderState>().inner()
-}
+/// Spawn a minimal HTTP file server that serves multiple PMTiles files with Range request support.
+/// Files are served at /{filename}.pmtiles. Returns the port it's listening on.
+async fn start_tile_server(dirs: Vec<std::path::PathBuf>) -> u16 {
+    use tokio::net::TcpListener;
+    use tokio::io::AsyncWriteExt;
 
-#[tauri::command]
-fn get_offline_tile(app: tauri::AppHandle, source: String, z: u32, x: u32, y: u32) -> Result<String, String> {
-    let state = get_pmtiles_data(&app);
-    let readers = state.readers.lock().map_err(|e| e.to_string())?;
-
-    let pmtiles_data = readers.get(&source).ok_or_else(|| format!("Unknown tile source: {}", source))?;
-
-    let mut cursor = Cursor::new(pmtiles_data.as_slice());
-    let mut pm = pmtiles2::PMTiles::from_reader(&mut cursor).map_err(|e| format!("PMTiles read error: {}", e))?;
-
-    match pm.get_tile(x as u64, y as u64, z as u8) {
-        Ok(Some(data)) => Ok(base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &data)),
-        Ok(None) => Err("Tile not found".to_string()),
-        Err(_) => Err("Tile read error".to_string()),
+    // Load all .pmtiles files from multiple directories into memory
+    let mut files: HashMap<String, std::sync::Arc<Vec<u8>>> = HashMap::new();
+    for dir in &dirs {
+        eprintln!("[BOOT] Scanning for PMTiles in: {:?}", dir);
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().map_or(false, |e| e == "pmtiles") {
+                    let name = path.file_name().unwrap().to_string_lossy().to_string();
+                    let key = format!("/{}", name);
+                    if files.contains_key(&key) { continue; } // skip duplicates
+                    match std::fs::read(&path) {
+                        Ok(d) => {
+                            eprintln!("[BOOT] Loaded {} ({:.1} MB)", name, d.len() as f64 / 1_048_576.0);
+                            files.insert(key, std::sync::Arc::new(d));
+                        }
+                        Err(e) => eprintln!("[BOOT] Failed to read {}: {}", name, e),
+                    }
+                }
+            }
+        }
     }
+
+    eprintln!("[BOOT] PMTiles loaded: {:?}", files.keys().collect::<Vec<_>>());
+    if files.is_empty() {
+        eprintln!("[BOOT] No PMTiles files found in {:?} — tile server not started", dirs);
+        return 0;
+    }
+
+    let files = std::sync::Arc::new(files);
+
+    // Bind to a random available port on localhost
+    let listener = match TcpListener::bind("127.0.0.1:0").await {
+        Ok(l) => l,
+        Err(e) => {
+            eprintln!("[BOOT] Failed to bind tile server: {}", e);
+            return 0;
+        }
+    };
+    let port = listener.local_addr().unwrap().port();
+    eprintln!("[BOOT] Tile server listening on http://127.0.0.1:{}", port);
+
+    // Serve connections in the background
+    tokio::spawn(async move {
+        loop {
+            let (mut stream, _) = match listener.accept().await {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+            let files = files.clone();
+            tokio::spawn(async move {
+                let mut buf = vec![0u8; 4096];
+                let n = match tokio::io::AsyncReadExt::read(&mut stream, &mut buf).await {
+                    Ok(n) if n > 0 => n,
+                    _ => return,
+                };
+                let request = String::from_utf8_lossy(&buf[..n]);
+
+                // Parse request path from "GET /planet.pmtiles HTTP/1.1"
+                let req_path = request.split_whitespace().nth(1).unwrap_or("/");
+
+                // Handle CORS preflight
+                if request.starts_with("OPTIONS") {
+                    let cors = "HTTP/1.1 204 No Content\r\n\
+                        Access-Control-Allow-Origin: *\r\n\
+                        Access-Control-Allow-Methods: GET, OPTIONS\r\n\
+                        Access-Control-Allow-Headers: Range\r\n\
+                        Access-Control-Max-Age: 86400\r\n\
+                        Connection: close\r\n\r\n";
+                    let _ = tokio::io::AsyncWriteExt::write_all(&mut stream, cors.as_bytes()).await;
+                    return;
+                }
+
+                // Find the requested file
+                // Strip query string if present (pmtiles lib may add cache busters)
+                let clean_path = req_path.split('?').next().unwrap_or(req_path);
+                let data = match files.get(clean_path) {
+                    Some(d) => d.clone(),
+                    None => {
+                        eprintln!("[tile-server] 404: {} (available: {:?})", clean_path, files.keys().collect::<Vec<_>>());
+                        let resp = "HTTP/1.1 404 Not Found\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                        let _ = tokio::io::AsyncWriteExt::write_all(&mut stream, resp.as_bytes()).await;
+                        return;
+                    }
+                };
+
+                // Parse Range header if present
+                let (start, end) = if let Some(range_line) = request.lines()
+                    .find(|l| l.to_lowercase().starts_with("range:"))
+                {
+                    let spec = range_line.split('=').nth(1).unwrap_or("");
+                    let parts: Vec<&str> = spec.trim().split('-').collect();
+                    let s: usize = parts.first().and_then(|p| p.parse().ok()).unwrap_or(0);
+                    let e: usize = parts.get(1)
+                        .and_then(|p| if p.is_empty() { None } else { p.parse().ok() })
+                        .unwrap_or(data.len() - 1)
+                        .min(data.len() - 1);
+                    (s, e)
+                } else {
+                    (0, data.len() - 1)
+                };
+
+                let slice = &data[start..=end];
+                let is_range = start > 0 || end < data.len() - 1;
+                let status = if is_range { "206 Partial Content" } else { "200 OK" };
+
+                let header = format!(
+                    "HTTP/1.1 {status}\r\n\
+                     Content-Type: application/octet-stream\r\n\
+                     Content-Length: {}\r\n\
+                     Accept-Ranges: bytes\r\n\
+                     Content-Range: bytes {start}-{end}/{}\r\n\
+                     Access-Control-Allow-Origin: *\r\n\
+                     Access-Control-Allow-Headers: Range\r\n\
+                     Access-Control-Expose-Headers: Content-Range\r\n\
+                     Connection: close\r\n\r\n",
+                    slice.len(),
+                    data.len(),
+                );
+
+                let _ = tokio::io::AsyncWriteExt::write_all(&mut stream, header.as_bytes()).await;
+                let _ = tokio::io::AsyncWriteExt::write_all(&mut stream, slice).await;
+            });
+        }
+    });
+
+    port
+}
+
+/// Returns the local tile server port (0 if not available)
+#[tauri::command]
+fn get_tile_server_port(state: tauri::State<TileServerState>) -> u16 {
+    state.port.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 #[tauri::command]
@@ -1248,6 +1695,54 @@ fn show_main_window(app: tauri::AppHandle) -> Result<(), String> {
         let _ = menubar.hide();
     }
     Ok(())
+}
+
+// ---- Traceroute commands ----
+
+#[tauri::command]
+async fn trace_route(state: tauri::State<'_, AppState>, dest_ip: String) -> Result<traceroute::TracedRoute, String> {
+    // Run traceroute (async, no locks held)
+    let raw_hops = traceroute::run_traceroute(&dest_ip).await?;
+
+    // Geolocate hops (sync, brief lock)
+    let geoip_guard = state.geoip.read().unwrap();
+    let geoip = geoip_guard.as_ref().ok_or("GeoIP not loaded")?.clone();
+    drop(geoip_guard);
+
+    let route = {
+        let enricher = state.enricher.lock().unwrap();
+        traceroute::geolocate_and_build(&dest_ip, raw_hops, &geoip, &enricher)
+    };
+
+    state.db.insert_traced_route(&route);
+    Ok(route)
+}
+
+#[tauri::command]
+fn get_traced_route(state: tauri::State<AppState>, dest_ip: String) -> Option<traceroute::TracedRoute> {
+    state.db.get_traced_route(&dest_ip)
+}
+
+#[tauri::command]
+fn get_all_traced_routes(state: tauri::State<AppState>) -> std::collections::HashMap<String, traceroute::TracedRoute> {
+    state.db.get_all_traced_routes()
+}
+
+#[derive(serde::Serialize)]
+struct DatabaseStats {
+    file_size_bytes: u64,
+    connections: u64,
+    dns_queries: u64,
+    traced_routes: u64,
+    firewall_rules: u64,
+}
+
+#[tauri::command]
+fn get_database_stats(state: tauri::State<AppState>) -> DatabaseStats {
+    let (connections, dns_queries, traced_routes, firewall_rules) = state.db.get_database_stats();
+    let db_path = state.db.get_database_path();
+    let file_size_bytes = std::fs::metadata(&db_path).map(|m| m.len()).unwrap_or(0);
+    DatabaseStats { file_size_bytes, connections, dns_queries, traced_routes, firewall_rules }
 }
 
 #[tauri::command]
@@ -1988,8 +2483,8 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_geolocation::init())
         .plugin(tauri_plugin_notification::init())
-        .manage(TileReaderState {
-            readers: std::sync::Mutex::new(HashMap::new()),
+        .manage(TileServerState {
+            port: std::sync::Arc::new(std::sync::atomic::AtomicU16::new(0)),
         })
         .manage(AppState {
             running: Arc::new(AtomicBool::new(false)),
@@ -2005,6 +2500,7 @@ pub fn run() {
             geoip: Arc::new(StdRwLock::new(None)),
             speed_test_result: Arc::new(Mutex::new(None)),
             speed_test_running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            ne_broadcast: Arc::new(Mutex::new(None)),
         })
         .invoke_handler(tauri::generate_handler![
             start_capture,
@@ -2053,45 +2549,78 @@ pub fn run() {
             show_main_window,
             reset_preferences,
             clear_history,
-            get_offline_tile,
-            get_offline_glyph
+            get_tile_server_port,
+            get_offline_glyph,
+            trace_route,
+            get_database_stats,
+            get_traced_route,
+            get_all_traced_routes,
+
+            // Firewall v2 commands
+            get_firewall_rules_v2,
+            create_firewall_rule_v2,
+            update_firewall_rule_v2,
+            delete_firewall_rule_v2,
+            check_rule_conflicts,
+            get_app_registry,
+            get_network_profiles,
+            create_network_profile,
+            delete_network_profile,
+            switch_network_profile,
+            get_block_history,
+            get_block_stats_hourly,
+            get_privacy_scores,
+            get_firewall_state,
+            toggle_kill_switch,
+            complete_setup_wizard,
+            respond_to_approval,
+            get_system_whitelist,
+            export_firewall_config,
+            import_firewall_config
         ])
         .setup(|app| {
             eprintln!("[BOOT] Setup starting...");
 
-            // Load bundled PMTiles for offline map support
+            // Start local tile server for offline PMTiles support
             let res_dir = app.path().resource_dir()
                 .expect("failed to resolve resource dir")
                 .join("resources");
+            let dev_res_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources");
 
-            let tile_state: tauri::State<TileReaderState> = app.state();
-            let mut readers = tile_state.readers.lock().unwrap();
-            for name in ["planet"] {
-                let path = res_dir.join(format!("{}.pmtiles", name));
-                if path.exists() {
-                    match std::fs::read(&path) {
-                        Ok(data) => {
-                            eprintln!("[BOOT] Loaded {}.pmtiles ({:.1} MB)", name, data.len() as f64 / 1_048_576.0);
-                            readers.insert(name.to_string(), data);
-                        }
-                        Err(e) => eprintln!("[BOOT] Failed to load {}.pmtiles: {}", name, e),
-                    }
-                } else {
-                    eprintln!("[BOOT] {}.pmtiles not found at {:?} — offline tiles unavailable", name, path);
-                }
-            }
-            drop(readers);
+            // Scan both bundled and dev source directories for pmtiles files.
+            // In dev mode, some files may be in target/debug/resources/ (copied by Tauri)
+            // while newer files are only in src-tauri/resources/ (source).
+            // Merge both, preferring bundled over dev for duplicates.
+            let tile_dirs = vec![res_dir.clone(), dev_res_dir.clone()];
+
+            let port_ref = {
+                let tile_state: tauri::State<TileServerState> = app.state();
+                tile_state.port.clone()
+            };
+            tauri::async_runtime::spawn(async move {
+                let port = start_tile_server(tile_dirs).await;
+                port_ref.store(port, std::sync::atomic::Ordering::Relaxed);
+            });
 
             // Always log to a fixed file path + stdout
             let log_path = std::path::PathBuf::from("/tmp/blip-debug.log");
             // Clear previous log
             let _ = std::fs::write(&log_path, "");
 
+            let log_level = if cfg!(debug_assertions) {
+                log::LevelFilter::Info // dev mode: info and above
+            } else {
+                log::LevelFilter::Info // release: info and above
+            };
+
             let log_builder = tauri_plugin_log::Builder::default()
-                .level(log::LevelFilter::Debug)
+                .level(log_level)
                 .level_for("maxminddb", log::LevelFilter::Warn)
                 .level_for("tao", log::LevelFilter::Warn)
                 .level_for("wry", log::LevelFilter::Warn)
+                .level_for("reqwest", log::LevelFilter::Warn)
+                .level_for("hyper", log::LevelFilter::Warn)
+                .level_for("tauri_plugin_updater", log::LevelFilter::Warn)
                 .target(tauri_plugin_log::Target::new(
                     tauri_plugin_log::TargetKind::Folder {
                         path: std::path::PathBuf::from("/tmp"),
@@ -2108,6 +2637,38 @@ pub fn run() {
 
             // Set up menu bar tray icon with live bandwidth text
             setup_tray(app)?;
+
+            // Data retention cleanup — on launch + every 6 hours
+            {
+                let cleanup_db = app.state::<AppState>().db.clone();
+                let run_cleanup = move || {
+                    let days_str = cleanup_db.get_preference("data_retention_days").ok().flatten().unwrap_or_default();
+                    let days: u32 = days_str.parse().unwrap_or(30);
+                    if days > 0 {
+                        let (conns, dns) = cleanup_db.cleanup_old_data(days);
+                        if conns > 0 || dns > 0 {
+                            log::info!("[cleanup] Deleted {} connections + {} DNS queries older than {} days", conns, dns, days);
+                        }
+                    }
+                };
+                // Run on launch
+                run_cleanup();
+                // Run every 6 hours
+                let cleanup_db2 = app.state::<AppState>().db.clone();
+                std::thread::spawn(move || {
+                    loop {
+                        std::thread::sleep(std::time::Duration::from_secs(6 * 60 * 60));
+                        let days_str = cleanup_db2.get_preference("data_retention_days").ok().flatten().unwrap_or_default();
+                        let days: u32 = days_str.parse().unwrap_or(30);
+                        if days > 0 {
+                            let (conns, dns) = cleanup_db2.cleanup_old_data(days);
+                            if conns > 0 || dns > 0 {
+                                log::info!("[cleanup] Periodic: deleted {} connections + {} DNS queries", conns, dns);
+                            }
+                        }
+                    }
+                });
+            }
 
             eprintln!("[BOOT] Setup complete, running...");
             Ok(())

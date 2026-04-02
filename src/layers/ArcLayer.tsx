@@ -2,13 +2,9 @@ import { useRef } from "react";
 import { useControl } from "react-map-gl/maplibre";
 import { MapboxOverlay } from "@deck.gl/mapbox";
 import { PathLayer, ScatterplotLayer, TextLayer } from "@deck.gl/layers";
-import { SimpleMeshLayer } from "@deck.gl/mesh-layers";
-import { SphereGeometry } from "@luma.gl/engine";
+import { PathStyleExtension } from "@deck.gl/extensions";
 import { HeatmapLayer as DeckHeatmapLayer } from "@deck.gl/aggregation-layers";
-import type { ArcData, ParticleData, BlockedMarkerData, EndpointData } from "../hooks/useArcAnimation";
-
-// Shared sphere mesh — created once, reused across renders
-const sphereMesh = new SphereGeometry({ radius: 1, nlat: 12, nlong: 12 });
+import type { ArcData, ParticleData, BlockedMarkerData, EndpointData, HopMarkerData } from "../hooks/useArcAnimation";
 
 export interface HeatmapPoint {
   position: [number, number]; // [lon, lat]
@@ -23,6 +19,8 @@ interface Props {
   heatmapData?: HeatmapPoint[];
   showHeatmap?: boolean;
   endpoints?: EndpointData[];
+  hopMarkers?: HopMarkerData[];
+  showHops?: boolean;
 }
 
 function DeckGLOverlay({ layers }: { layers: any[] }) {
@@ -36,7 +34,7 @@ function hexToRgb(hex: string): [number, number, number] {
   return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
 }
 
-export function NetworkArcLayer({ arcs, particles = [], blockedMarkers = [], showParticles = false, heatmapData = [], showHeatmap = false, endpoints = [] }: Props) {
+export function NetworkArcLayer({ arcs, particles = [], blockedMarkers = [], showParticles = false, heatmapData = [], showHeatmap = false, endpoints = [], hopMarkers = [], showHops = false }: Props) {
   const frameCounter = useRef(0);
   frameCounter.current += 1;
 
@@ -98,38 +96,56 @@ export function NetworkArcLayer({ arcs, particles = [], blockedMarkers = [], sho
   const arcLayer = new PathLayer<ArcData>({
     id: "network-arcs",
     data: arcs,
-    getPath: (d) => d.path,
-    getColor: (d) => d.targetColor,
-    getWidth: (d) => d.width,
+    getPath: (d: ArcData) => d.path,
+    getColor: (d: ArcData) => d.targetColor,
+    getWidth: (d: ArcData) => d.width,
     widthUnits: "pixels" as const,
     widthMinPixels: 1,
     widthMaxPixels: 4,
     capRounded: true,
     jointRounded: true,
+    extensions: [new PathStyleExtension({ dash: true })],
+    // PathStyleExtension props (not in base PathLayer types)
+    ...(({
+      getDashArray: (d: ArcData) => d.cableRouted ? [20, 10] : [10000, 0],
+      dashJustified: true,
+      dashGapPickable: true,
+    }) as Record<string, unknown>),
     updateTriggers: {
       getColor: [arcs.length, frameCounter.current],
       getWidth: [arcs.length, frameCounter.current],
+      getDashArray: [arcs.length],
     },
   });
   layers.push(arcLayer);
 
-  if (showParticles && particles.length > 0) {
-    const particleLayer = new SimpleMeshLayer<ParticleData>({
-      id: "network-particles",
-      data: particles,
-      mesh: sphereMesh,
-      getPosition: (d) => d.position,
-      getColor: (d) => d.color as [number, number, number, number],
-      getScale: (d) => [d.width * 600, d.width * 600, d.width * 600],
-      sizeScale: 1,
-      updateTriggers: {
-        getPosition: [frameCounter.current],
-        getColor: [particles.length],
-        getScale: [particles.length],
-      },
-    });
+  // Hop markers are rendered as HTML Markers in App.tsx, not deck.gl layers
 
-    layers.push(particleLayer);
+  // Subtle glow layer — slightly wider, brighter version of active arcs
+  // Creates a soft halo effect. The pulsing comes from the arc's own alpha animation.
+  if (showParticles && arcs.length > 0) {
+    const glowArcs = arcs.filter((d) => d.targetColor[3] > 10);
+    if (glowArcs.length > 0) {
+      const glowLayer = new PathLayer<ArcData>({
+        id: "network-glow",
+        data: glowArcs,
+        getPath: (d: ArcData) => d.path,
+        getColor: (d: ArcData) => {
+          const [r, g, b, a] = d.targetColor;
+          return [r, g, b, Math.min(Math.round(a * 1.5), 80)] as [number, number, number, number];
+        },
+        getWidth: (d: ArcData) => d.width + 3,
+        widthUnits: "pixels" as const,
+        widthMinPixels: 3,
+        widthMaxPixels: 8,
+        capRounded: true,
+        jointRounded: true,
+        updateTriggers: {
+          getColor: [frameCounter.current],
+        },
+      });
+      layers.push(glowLayer);
+    }
   }
 
   // Red X markers at midpoints of blocked/flashing arcs

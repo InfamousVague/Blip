@@ -27,10 +27,6 @@ export function AlertsTab() {
   const [dlThreshold, setDlThreshold] = usePref("alert_threshold_download_mbps", "100");
   const [ulEnabled, setUlEnabled] = useBoolPref("alert_upload_enabled", true);
   const [ulThreshold, setUlThreshold] = usePref("alert_threshold_upload_mbps", "50");
-  const [fwAlerts, setFwAlerts] = useBoolPref("alert_firewall", true);
-  const [trackerAlerts, setTrackerAlerts] = useBoolPref("alert_trackers", true);
-  const [newAppAlerts, setNewAppAlerts] = useBoolPref("alert_new_app", false);
-  const [quietHours, setQuietHours] = useBoolPref("alert_quiet_hours", false);
 
   return (
     <>
@@ -38,6 +34,9 @@ export function AlertsTab() {
       <Separator />
 
       <span className="settings-group-title">Bandwidth Thresholds</span>
+      <span className="blip-text-row-desc" style={{ marginTop: -4 }}>
+        Get notified when sustained bandwidth exceeds these limits for 10+ seconds.
+      </span>
 
       <div className="settings-row">
         <div className="settings-row__label">
@@ -75,46 +74,6 @@ export function AlertsTab() {
           min={1}
         />
         <span className="blip-text-row-desc" style={{ flexShrink: 0 }}>Mbps</span>
-      </div>
-
-      <Separator />
-
-      <span className="settings-group-title">Alert Types</span>
-
-      <div className="settings-row">
-        <div className="settings-row__label">
-          <span className="blip-text-row-title">Firewall alerts</span>
-          <span className="blip-text-row-desc">Show toast when a connection is blocked</span>
-        </div>
-        <Toggle checked={fwAlerts} onChange={setFwAlerts} />
-      </div>
-
-      <div className="settings-row">
-        <div className="settings-row__label">
-          <span className="blip-text-row-title">Tracker alerts</span>
-          <span className="blip-text-row-desc">Notify when tracker domains are detected</span>
-        </div>
-        <Toggle checked={trackerAlerts} onChange={setTrackerAlerts} />
-      </div>
-
-      <div className="settings-row">
-        <div className="settings-row__label">
-          <span className="blip-text-row-title">New app alerts</span>
-          <span className="blip-text-row-desc">Notify when an unknown app connects</span>
-        </div>
-        <Toggle checked={newAppAlerts} onChange={setNewAppAlerts} />
-      </div>
-
-      <Separator />
-
-      <span className="settings-group-title">Quiet Hours</span>
-
-      <div className="settings-row">
-        <div className="settings-row__label">
-          <span className="blip-text-row-title">Enable quiet hours</span>
-          <span className="blip-text-row-desc">Suppress non-critical alerts during set hours</span>
-        </div>
-        <Toggle checked={quietHours} onChange={setQuietHours} />
       </div>
     </>
   );

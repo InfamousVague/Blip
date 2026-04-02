@@ -20,6 +20,7 @@ interface ServiceRowProps {
   bytesReceived: number;
   className?: string;
   style?: CSSProperties;
+  onClick?: () => void;
 }
 
 /** Split bytes into { whole, decimal, unit } for NumberRoll rendering */
@@ -54,9 +55,10 @@ export function ServiceRow({
   bytesReceived,
   className = '',
   style,
+  onClick,
 }: ServiceRowProps) {
   return (
-    <div className={`blip-service-row ${className}`} style={style}>
+    <div className={`blip-service-row ${className}`} style={style} onClick={onClick} role={onClick ? "button" : undefined}>
       <div className="blip-service-row__left">
         <div className="blip-service-row__icon">
           {iconUrl ? (

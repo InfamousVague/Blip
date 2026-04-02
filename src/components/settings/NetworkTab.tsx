@@ -31,7 +31,16 @@ export function NetworkTab() {
   const [vpnAutoDetect, setVpnAutoDetect] = useBoolPref("vpn_auto_detect", true);
   const [resolveHostnames, setResolveHostnames] = useBoolPref("dns_resolve_hostnames", true);
   const [cacheDns, setCacheDns] = useBoolPref("dns_cache_results", true);
+  const [latencyHeatmap, setLatencyHeatmap] = useBoolPref("route_latency_heatmap", false);
+  const [networkWeather, setNetworkWeather] = useBoolPref("route_network_weather", false);
+  const [routeComparison, setRouteComparison] = useBoolPref("route_comparison", false);
+  const [sovereigntyAlerts, setSovereigntyAlerts] = useBoolPref("route_sovereignty_alerts", false);
   const [retentionDays, setRetentionDays] = useState("30");
+  const [dbStats, setDbStats] = useState<{ file_size_bytes: number; connections: number; dns_queries: number; traced_routes: number; firewall_rules: number } | null>(null);
+
+  useEffect(() => {
+    invoke<typeof dbStats>("get_database_stats").then(setDbStats).catch(() => {});
+  }, []);
 
   useEffect(() => {
     invoke<string | null>("get_preference", { key: "data_retention_days" })
@@ -80,9 +89,9 @@ export function NetworkTab() {
       <span className="settings-section-title">Network</span>
       <Separator />
 
-      <span className="settings-group-title">VPN Detection</span>
+      <span className="settings-group-title">VPN Detection <span className="settings-chip" style={{ marginLeft: 8, fontSize: 10 }}>Coming soon</span></span>
 
-      <div className="settings-row">
+      <div className="settings-row" style={{ opacity: 0.5, pointerEvents: "none" }}>
         <div className="settings-row__label">
           <span className="blip-text-row-title">VPN status indicator</span>
           <span className="blip-text-row-desc">Show VPN connection status in the topbar</span>
@@ -90,7 +99,7 @@ export function NetworkTab() {
         <Toggle checked={vpnIndicator} onChange={setVpnIndicator} />
       </div>
 
-      <div className="settings-row">
+      <div className="settings-row" style={{ opacity: 0.5, pointerEvents: "none" }}>
         <div className="settings-row__label">
           <span className="blip-text-row-title">Auto-detect VPN</span>
           <span className="blip-text-row-desc">Automatically detect active VPN connections</span>
@@ -139,11 +148,52 @@ export function NetworkTab() {
         </select>
       </div>
 
-      <div className="diagnostics-item" style={{ gap: 2 }}>
-        <span className="blip-text-row-title" style={{ fontSize: 12, fontWeight: 500, color: "var(--blip-text-secondary)" }}>
-          Database size: \u2014
-        </span>
-        <span className="blip-text-row-desc">Last cleanup: \u2014</span>
+      {dbStats && (
+        <div className="diagnostics-item" style={{ gap: 4 }}>
+          <span className="blip-text-row-title" style={{ fontSize: 12, fontWeight: 500, color: "var(--blip-text-secondary)" }}>
+            Database: {dbStats.file_size_bytes > 1048576 ? `${(dbStats.file_size_bytes / 1048576).toFixed(1)} MB` : `${(dbStats.file_size_bytes / 1024).toFixed(0)} KB`}
+          </span>
+          <span className="blip-text-row-desc" style={{ fontFamily: "var(--font-mono)", fontSize: 11 }}>
+            {dbStats.connections.toLocaleString()} connections · {dbStats.dns_queries.toLocaleString()} DNS queries · {dbStats.traced_routes} routes · {dbStats.firewall_rules} rules
+          </span>
+        </div>
+      )}
+
+      <Separator />
+
+      <span className="settings-group-title">Route Intelligence</span>
+      <span className="blip-text-row-desc" style={{ marginTop: -4 }}>Advanced features for traced routes. All disabled by default.</span>
+
+      <div className="settings-row">
+        <div className="settings-row__label">
+          <span className="blip-text-row-title">Latency heatmap</span>
+          <span className="blip-text-row-desc">Color arcs by round-trip latency</span>
+        </div>
+        <Toggle checked={latencyHeatmap} onChange={setLatencyHeatmap} />
+      </div>
+
+      <div className="settings-row">
+        <div className="settings-row__label">
+          <span className="blip-text-row-title">Network weather</span>
+          <span className="blip-text-row-desc">Show congestion on routes with degraded latency</span>
+        </div>
+        <Toggle checked={networkWeather} onChange={setNetworkWeather} />
+      </div>
+
+      <div className="settings-row">
+        <div className="settings-row__label">
+          <span className="blip-text-row-title">Route comparison</span>
+          <span className="blip-text-row-desc">Alert when routes change AS paths</span>
+        </div>
+        <Toggle checked={routeComparison} onChange={setRouteComparison} />
+      </div>
+
+      <div className="settings-row">
+        <div className="settings-row__label">
+          <span className="blip-text-row-title">Data sovereignty alerts</span>
+          <span className="blip-text-row-desc">Alert when traffic transits specified countries</span>
+        </div>
+        <Toggle checked={sovereigntyAlerts} onChange={setSovereigntyAlerts} />
       </div>
 
       <Separator />

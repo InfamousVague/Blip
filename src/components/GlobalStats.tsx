@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import "@mattmattmattmatt/base/primitives/icon/icon.css";
 import { chevronDown } from "@mattmattmattmatt/base/primitives/icon/icons/chevron-down";
 import { chevronUp } from "@mattmattmattmatt/base/primitives/icon/icons/chevron-up";
+import { maximize2 } from "@mattmattmattmatt/base/primitives/icon/icons/maximize-2";
 import { SegmentedControl } from "../ui/components/SegmentedControl";
 import { StatCard } from "../ui/components/StatCard";
 import { ServiceRow } from "../ui/components/ServiceRow";
@@ -73,6 +74,9 @@ interface Props {
   liveDownloadMbps?: number;
   liveUploadMbps?: number;
   speedPercent?: number;
+  activeServiceFilter?: string | null;
+  onServiceClick?: (serviceName: string | null) => void;
+  onOpenTreemap?: () => void;
 }
 
 const PAGE_SIZE = 5;
@@ -84,7 +88,7 @@ const CHART_MODES = [
   { value: "treemap", label: "Treemap" },
 ];
 
-export function GlobalStats({ connections, totalEver, bandwidth, serviceSamples, serviceBreakdown, serviceColors, downloadMbps = 0, uploadMbps = 0, pingMs = 0, speedTesting = false, lastSpeedTestTime = 0, onRunSpeedTest, speedStage = 'idle', liveDownloadMbps = 0, liveUploadMbps = 0, speedPercent = 0 }: Props) {
+export function GlobalStats({ connections, totalEver, bandwidth, serviceSamples, serviceBreakdown, serviceColors, downloadMbps = 0, uploadMbps = 0, pingMs = 0, speedTesting = false, lastSpeedTestTime = 0, onRunSpeedTest, speedStage = 'idle', liveDownloadMbps = 0, liveUploadMbps = 0, speedPercent = 0, activeServiceFilter = null, onServiceClick, onOpenTreemap }: Props) {
   const [showAllServices, setShowAllServices] = useState(false);
   const [chartMode, setChartMode] = useState("bandwidth");
 
@@ -176,7 +180,18 @@ export function GlobalStats({ connections, totalEver, bandwidth, serviceSamples,
             <StreamChart serviceSamples={serviceSamples} serviceColors={serviceColors} />
           )}
           {chartMode === "treemap" && (
-            <TreemapChart serviceBreakdown={serviceBreakdown} />
+            <div style={{ position: "relative" }}>
+              <TreemapChart serviceBreakdown={serviceBreakdown} />
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={maximize2}
+                iconOnly
+                aria-label="Expand treemap"
+                onClick={() => onOpenTreemap?.()}
+                style={{ position: "absolute", top: 2, right: 2, opacity: 0.6 }}
+              />
+            </div>
           )}
         </div>
 
@@ -213,6 +228,7 @@ export function GlobalStats({ connections, totalEver, bandwidth, serviceSamples,
             }
             return ICON_MAP[svc.type];
           })();
+          const isActive = activeServiceFilter === svc.label;
           return (
             <ServiceRow
               key={`${svc.label}-${i}`}
@@ -221,6 +237,8 @@ export function GlobalStats({ connections, totalEver, bandwidth, serviceSamples,
               iconUrl={iconUrl}
               bytesSent={svc.bytesSent}
               bytesReceived={svc.bytesReceived}
+              style={{ cursor: "pointer", opacity: activeServiceFilter && !isActive ? 0.4 : 1, transition: "opacity 0.2s" }}
+              onClick={() => onServiceClick?.(isActive ? null : svc.label)}
             />
           );
         })}
@@ -253,6 +271,7 @@ export function GlobalStats({ connections, totalEver, bandwidth, serviceSamples,
           <DestinationRow key={country} country={country} count={count} />
         ))}
       </CollapsibleSection>
+
     </div>
   );
 }

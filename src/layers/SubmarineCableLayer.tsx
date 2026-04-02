@@ -58,10 +58,10 @@ function addCableLayers(m: maplibregl.Map) {
       type: "line",
       source: CABLE_SOURCE,
       paint: {
-        // Data-driven: active cables are brighter
         "line-color": CABLE_COLOR,
         "line-width": 0.8,
-        "line-opacity": 0.25,
+        "line-opacity": 0.5,
+        "line-dasharray": [4, 3],
       },
     },
     "coastline",
@@ -91,33 +91,35 @@ export function SubmarineCableLayer({ activeCableIds, visible = true }: Props) {
   const [ready, setReady] = useState(false);
   const prevActiveRef = useRef<string>("");
 
-  // Add sources and layers once the map style is loaded
+  // Add sources and layers once the map style is loaded.
+  // Also re-add when the style changes (e.g. tile source switches from remote to local).
   useEffect(() => {
     if (!mapRef) return;
     const m = mapRef.getMap();
 
-    if (addCableLayers(m)) {
-      setReady(true);
-      return;
-    }
-
     const tryAdd = () => {
       if (addCableLayers(m)) {
         setReady(true);
-        m.off("idle", tryAdd);
-        m.off("load", tryAdd);
-        m.off("styledata", tryAdd);
       }
     };
 
+    // Style changes wipe dynamically-added layers — re-add on styledata
+    const onStyleData = () => {
+      setReady(false);
+      // Small delay to let the style fully load
+      setTimeout(tryAdd, 200);
+    };
+
+    tryAdd();
+
     m.on("load", tryAdd);
     m.on("idle", tryAdd);
-    m.on("styledata", tryAdd);
+    m.on("styledata", onStyleData);
 
     return () => {
       m.off("load", tryAdd);
       m.off("idle", tryAdd);
-      m.off("styledata", tryAdd);
+      m.off("styledata", onStyleData);
     };
   }, [mapRef]);
 
@@ -168,7 +170,7 @@ export function SubmarineCableLayer({ activeCableIds, visible = true }: Props) {
       // No active cables — everything dim
       m.setFilter(CABLE_GLOW_LAYER, ["in", "id", ""]);
       m.setPaintProperty(CABLE_LINE_LAYER, "line-color", CABLE_COLOR);
-      m.setPaintProperty(CABLE_LINE_LAYER, "line-opacity", 0.25);
+      m.setPaintProperty(CABLE_LINE_LAYER, "line-opacity", 0.5);
       m.setPaintProperty(CABLE_LINE_LAYER, "line-width", 0.8);
     }
   }, [mapRef, activeCableIds, ready]);

@@ -22,6 +22,81 @@
   pointer-events: none;
 }
 
+/* Hop waypoint marker — small downward-pointing pin with rabbit SVG */
+.hop-marker {
+  position: relative;
+  width: 28px;
+  height: 48px;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  animation: hop-float 3.5s ease-in-out infinite;
+}
+
+@keyframes hop-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+.hop-marker__rabbit {
+  width: 20px;
+  height: 20px;
+  margin-bottom: 2px;
+  filter: drop-shadow(0 0 3px rgba(167, 139, 250, 0.4));
+  animation: hop-rabbit-glow 2.5s ease-in-out infinite;
+}
+
+.hop-marker__pin {
+  width: 18px;
+  height: 24px;
+  filter: drop-shadow(0 0 8px rgba(139, 92, 246, 0.6))
+          drop-shadow(0 0 16px rgba(167, 139, 250, 0.3));
+}
+
+/* User location ground dot */
+.user-ground-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.5), 0 0 20px rgba(139, 92, 246, 0.3);
+  pointer-events: none;
+}
+
+@keyframes hop-rabbit-glow {
+  0%, 100% { filter: drop-shadow(0 0 2px rgba(167, 139, 250, 0.3)); }
+  50% { filter: drop-shadow(0 0 5px rgba(167, 139, 250, 0.5)); }
+}
+
+/* Blocked DNS flash — red X polygon that floats up and fades */
+.blocked-flash {
+  position: relative;
+  width: 20px;
+  height: 36px;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transition: none;
+}
+
+.blocked-flash__pin {
+  width: 16px;
+  height: 22px;
+  filter: drop-shadow(0 0 6px rgba(255, 50, 50, 0.6));
+}
+
+.blocked-flash__x {
+  position: absolute;
+  top: 0;
+  font-size: 10px;
+  font-weight: bold;
+  color: #ff4444;
+  text-shadow: 0 0 4px rgba(255, 50, 50, 0.8);
+  line-height: 1;
+}
+
 /* Floating waypoint gem marker */
 .waypoint-marker {
   position: relative;
@@ -77,6 +152,43 @@
   white-space: nowrap;
 }
 
+/* Upper controls — navigation, horizontally centered under radar */
+.map-controls-upper {
+  position: absolute;
+  top: 237px;
+  left: 36px;
+  display: flex;
+  flex-direction: row;
+  gap: 4px;
+  z-index: 4;
+  padding: 6px;
+  border-radius: 9999px;
+  background: rgba(0, 0, 0, 0.004);
+  backdrop-filter: blur(20px) saturate(1.8);
+  -webkit-backdrop-filter: blur(20px) saturate(1.8);
+  border: 1px solid rgba(227, 227, 227, 0.06);
+}
+
+.map-controls-upper .blip-btn {
+  width: 32px !important;
+  height: 32px !important;
+  min-width: 32px !important;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--blip-text-secondary);
+}
+
+.map-controls-upper .blip-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.map-controls-upper .blip-btn--primary {
+  background: var(--blip-purple-muted);
+  color: var(--blip-purple-text);
+}
+
+/* Lower controls — visualization toggles */
 .zoom-controls {
   position: absolute;
   bottom: 12px;

@@ -24,7 +24,12 @@ interface Props {
 
 const PAGE_SIZE = 15;
 
-function getAppDisplayName(appId: string): string {
+function getAppDisplayName(appId: string, appName?: string): string {
+  // Use the resolved app name if it's meaningful (not just the bundle ID or "unknown")
+  if (appName && appName !== "unknown" && appName !== appId) {
+    return appName;
+  }
+  // Fallback: format last segment of bundle ID
   const parts = appId.split(".");
   const last = parts[parts.length - 1] || appId;
   return last.charAt(0).toUpperCase() + last.slice(1);
@@ -78,7 +83,7 @@ export function FirewallContent({ apps, onSetRule, onDeleteRuleById, connections
       const candidates = [
         app.app_id.toLowerCase(),
         app.app_name.toLowerCase(),
-        getAppDisplayName(app.app_id).toLowerCase(),
+        getAppDisplayName(app.app_id, app.app_name).toLowerCase(),
       ];
 
       let match: { total: number; sent: number; recv: number } | undefined;
@@ -125,7 +130,7 @@ export function FirewallContent({ apps, onSetRule, onDeleteRuleById, connections
         (a) =>
           a.app_id.toLowerCase().includes(q) ||
           a.app_name.toLowerCase().includes(q) ||
-          getAppDisplayName(a.app_id).toLowerCase().includes(q)
+          getAppDisplayName(a.app_id, a.app_name).toLowerCase().includes(q)
       );
     }
 
@@ -179,7 +184,7 @@ export function FirewallContent({ apps, onSetRule, onDeleteRuleById, connections
           </div>
         ) : (
           visible.map((app) => {
-            const name = getAppDisplayName(app.app_id);
+            const name = getAppDisplayName(app.app_id, app.app_name);
             const bytes = bytesMap.get(app.app_id) || 0;
             const bytesSent = bytesSentMap.get(app.app_id) || 0;
             const bytesRecv = bytesRecvMap.get(app.app_id) || 0;

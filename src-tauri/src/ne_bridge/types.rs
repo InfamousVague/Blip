@@ -9,6 +9,15 @@ pub struct NEEvent {
     pub dns: Option<NEDnsEvent>,
     pub flow_update: Option<NEFlowUpdate>,
     pub listening_ports: Option<Vec<NEListeningPort>>,
+    // v2 firewall fields
+    pub verdict: Option<String>,
+    pub matched_rule_id: Option<String>,
+    pub domain: Option<String>,
+    pub approval_request: Option<serde_json::Value>,
+    pub approval_request_app_id: Option<String>,
+    pub approval_request_domain: Option<String>,
+    pub block_event: Option<serde_json::Value>,
+    pub ne_version: Option<String>,
 }
 
 /// Connection event received from the Network Extension via Unix socket.

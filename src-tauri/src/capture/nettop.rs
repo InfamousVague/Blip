@@ -80,6 +80,7 @@ pub async fn start_capture(
     blocklists: Arc<BlocklistStore>,
     enricher: Arc<std::sync::Mutex<crate::enrichment::Enricher>>,
     dns_mapping: SharedDnsMapping,
+    resolve_dns: bool,
 ) {
     running.store(true, Ordering::SeqCst);
 
@@ -334,7 +335,7 @@ pub async fn start_capture(
         }
 
         // Resolve DNS in background for connections still without a domain
-        {
+        if resolve_dns {
             let state = store.write().unwrap();
             let needs_dns: Vec<(String, String)> = state
                 .connections

@@ -93,3 +93,23 @@ export interface DnsStats {
   blocked_count: number;
   recent_rate: number;
 }
+
+// ---- Traceroute ----
+
+export interface TracerouteHop {
+  hop_number: number;
+  ip: string | null;
+  rtt_ms: number | null;
+  lat: number | null;
+  lon: number | null;
+  city: string | null;
+  country: string | null;
+  asn: number | null;
+  asn_org: string | null;
+}
+
+export interface TracedRoute {
+  dest_ip: string;
+  hops: TracerouteHop[];
+  traced_at: number;
+}

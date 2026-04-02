@@ -30,9 +30,7 @@ const FIREWALL_MODE_DESCRIPTIONS: Record<string, string> = {
 };
 
 export function GeneralTab({ firewallMode, onFirewallModeChange }: Props) {
-  const [autoCapture, setAutoCapture] = useState(true);
   const [showInactive, setShowInactive] = useState(true);
-  const [debugLogging, setDebugLogging] = useState(false);
   const [neStatus, setNeStatus] = useState<string>("not_installed");
   const [neLoading, setNeLoading] = useState(false);
   const [neError, setNeError] = useState<string | null>(null);
@@ -42,27 +40,15 @@ export function GeneralTab({ firewallMode, onFirewallModeChange }: Props) {
   useEffect(() => {
     (async () => {
       try {
-        const ac = await invoke<string | null>("get_preference", { key: "auto_capture" });
-        if (ac !== null) setAutoCapture(ac === "true");
         const si = await invoke<string | null>("get_preference", { key: "show_inactive" });
         if (si !== null) setShowInactive(si === "true");
-        const dl = await invoke<string | null>("get_preference", { key: "debug_logging" });
-        if (dl !== null) setDebugLogging(dl === "true");
       } catch { /* ignore */ }
     })();
   }, []);
 
-  const handleAutoCapture = (v: boolean) => {
-    setAutoCapture(v);
-    invoke("set_preference", { key: "auto_capture", value: String(v) }).catch(() => {});
-  };
   const handleShowInactive = (v: boolean) => {
     setShowInactive(v);
     invoke("set_preference", { key: "show_inactive", value: String(v) }).catch(() => {});
-  };
-  const handleDebugLogging = (v: boolean) => {
-    setDebugLogging(v);
-    invoke("set_preference", { key: "debug_logging", value: String(v) }).catch(() => {});
   };
 
   const refreshDiagnostics = useCallback(async () => {
@@ -98,16 +84,8 @@ export function GeneralTab({ firewallMode, onFirewallModeChange }: Props) {
 
       <div className="settings-row">
         <div className="settings-row__label">
-          <span className="blip-text-row-title">Auto-start capture</span>
-          <span className="blip-text-row-desc">Begin monitoring network traffic when Blip launches</span>
-        </div>
-        <Toggle checked={autoCapture} onChange={handleAutoCapture} />
-      </div>
-
-      <div className="settings-row">
-        <div className="settings-row__label">
           <span className="blip-text-row-title">Show inactive connections</span>
-          <span className="blip-text-row-desc">Display fading arcs for recently closed connections</span>
+          <span className="blip-text-row-desc">Display fading arcs for recently closed connections in the sidebar</span>
         </div>
         <Toggle checked={showInactive} onChange={handleShowInactive} />
       </div>
@@ -170,13 +148,6 @@ export function GeneralTab({ firewallMode, onFirewallModeChange }: Props) {
         </Button>
       </div>
 
-      <div className="settings-row">
-        <div className="settings-row__label">
-          <span className="blip-text-row-title">Debug logging</span>
-          <span className="blip-text-row-desc">Write detailed logs to /tmp/blip-debug.log</span>
-        </div>
-        <Toggle checked={debugLogging} onChange={handleDebugLogging} />
-      </div>
 
       <Separator />
 

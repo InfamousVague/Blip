@@ -3,7 +3,7 @@ import type { EndpointData } from "../hooks/useArcAnimation";
 import radarWorld from "../assets/radar-world.json";
 import "./RadarMinimap.css";
 
-const SIZE = 180;
+const SIZE = 153;
 const DPR = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
 const PX = SIZE * DPR;
 const CENTER = PX / 2;

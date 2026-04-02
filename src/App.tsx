@@ -10,9 +10,14 @@ import { locateFixed } from "@mattmattmattmatt/base/primitives/icon/icons/locate
 import { settings } from "@mattmattmattmatt/base/primitives/icon/icons/settings";
 import { buildAtlasStyle } from "./map-themes";
 import { registerOfflineProtocols } from "./utils/offline-tiles";
+
+// Initialize tile protocols before any Map renders.
+// This is a module-level promise — resolves once the local tile server is detected.
+const tilesReady = registerOfflineProtocols();
 import { useNetworkCapture } from "./hooks/useNetworkEvents";
 import { useArcAnimation } from "./hooks/useArcAnimation";
 import type { EndpointData } from "./hooks/useArcAnimation";
+import { useRouteTracing } from "./hooks/useRouteTracing";
 import { NetworkArcLayer } from "./layers/ArcLayer";
 import { EndpointLayer } from "./layers/EndpointLayer";
 import { SubmarineCableLayer } from "./layers/SubmarineCableLayer";
@@ -21,6 +26,7 @@ import { RadarMinimap } from "./components/RadarMinimap";
 import { useSpeedTest } from "./hooks/useSpeedTest";
 import { Sidebar } from "./components/Sidebar";
 import { GlobalStats } from "./components/GlobalStats";
+import { NetworkTreemapModal } from "./components/NetworkTreemapModal";
 import { EndpointDetail } from "./components/EndpointDetail";
 import { useBandwidth } from "./hooks/useBandwidth";
 import { Settings } from "./components/settings";
@@ -33,6 +39,7 @@ import { useDnsCapture } from "./hooks/useDnsCapture";
 import { useServiceBandwidth } from "./hooks/useServiceBandwidth";
 import { useFirewallRules } from "./hooks/useFirewallRules";
 import { useFirewallAlerts } from "./hooks/useFirewallAlerts";
+import { SetupWizard } from "./components/SetupWizard";
 import { useListeningPorts } from "./hooks/useListeningPorts";
 import { FirewallAlertOverlay } from "./components/FirewallAlertToast";
 import { ConnectionRequestModal } from "./components/modals/ConnectionRequestModal";
@@ -43,11 +50,13 @@ import { SegmentedControl } from "./ui/components/SegmentedControl";
 import { UpdateBanner } from "./ui/components/UpdateBanner";
 import { flame } from "@mattmattmattmatt/base/primitives/icon/icons/flame";
 import { sparkles } from "@mattmattmattmatt/base/primitives/icon/icons/sparkles";
+import { rabbit } from "@mattmattmattmatt/base/primitives/icon/icons/rabbit";
+import { thermometer } from "@mattmattmattmatt/base/primitives/icon/icons/thermometer";
 import { panelRightClose } from "@mattmattmattmatt/base/primitives/icon/icons/panel-right-close";
 import { panelRightOpen } from "@mattmattmattmatt/base/primitives/icon/icons/panel-right-open";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import type { HistoricalEndpoint, SelfIpInfo } from "./types/connection";
+import type { HistoricalEndpoint, SelfIpInfo, TracedRoute } from "./types/connection";
 import "./App.css";
 
 type Location = { longitude: number; latitude: number; source: string; ip?: string };
@@ -98,7 +107,21 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [showSetup, setShowSetup] = useState(false);
   const [showHeatmap, setShowHeatmap] = useState(false);
-  const [showParticles, setShowParticles] = useState(true);
+  const [showParticles, setShowParticles] = useState(false);
+  const [showHops, setShowHops] = useState(false);
+  const [activeServiceFilter, setActiveServiceFilter] = useState<string | null>(null);
+  const [latencyHeatmap, setLatencyHeatmap] = useState(false);
+  const [showInactive, setShowInactive] = useState(true);
+
+  // Load preferences
+  useEffect(() => {
+    invoke<string | null>("get_preference", { key: "route_latency_heatmap" })
+      .then((v) => { if (v === "true") setLatencyHeatmap(true); })
+      .catch(() => {});
+    invoke<string | null>("get_preference", { key: "show_inactive" })
+      .then((v) => { if (v === "false") setShowInactive(false); })
+      .catch(() => {});
+  }, []);
   const [mode, setMode] = useState<"network" | "firewall" | "ports">("network");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarTab, setSidebarTab] = useState<"network" | "trackers" | "dns">("network");
@@ -106,8 +129,38 @@ function App() {
   const [selfInfo, setSelfInfo] = useState<SelfIpInfo | null>(null);
   const [elevationBanner, setElevationBanner] = useState(false);
   const [errorModal, setErrorModal] = useState<{ title: string; description: string; detail?: string } | null>(null);
-  const mapStyle = useMemo(() => buildAtlasStyle(), []);
+  const [treemapOpen, setTreemapOpen] = useState(false);
+  const [tilesInitialized, setTilesInitialized] = useState(false);
+  useEffect(() => { tilesReady.then(() => setTilesInitialized(true)); }, []);
+  const mapStyle = useMemo(() => buildAtlasStyle(), [tilesInitialized]);
   const setupTriggered = useRef(false);
+  const [showWizard, setShowWizard] = useState(false);
+  const [neUpdateNeeded, setNeUpdateNeeded] = useState(false);
+
+  // Check if first-time setup wizard needs to be shown
+  useEffect(() => {
+    invoke<string | null>("get_preference", { key: "firewall_wizard_completed" })
+      .then((v) => {
+        if (v !== "true") setShowWizard(true);
+      })
+      .catch(() => {});
+  }, []);
+
+  // Listen for NE version mismatch — prompt user to reinstall (unless dismissed)
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    import("@tauri-apps/api/event").then(({ listen }) => {
+      listen("ne-version-mismatch", async () => {
+        try {
+          const dismissed = await invoke<string | null>("get_preference", { key: "ne_update_dismissed" });
+          if (dismissed !== "true") setNeUpdateNeeded(true);
+        } catch {
+          setNeUpdateNeeded(true);
+        }
+      }).then((fn) => { unlisten = fn; });
+    });
+    return () => { if (unlisten) unlisten(); };
+  }, []);
 
   const { connections, totalEver, capturing, startCapture, stopCapture } = useNetworkCapture(sidebarTab);
 
@@ -116,7 +169,9 @@ function App() {
     : null;
 
   const { log: dnsLog, stats: dnsStats, blockedAttempts } = useDnsCapture(sidebarTab === "dns");
-  const { arcs, endpoints, particles, blockedMarkers, activeCableIds } = useArcAnimation(connections, userPos, dnsStats.blocked_count, blockedAttempts);
+  const { tracedRoutes } = useRouteTracing();
+  const [emptyRoutes] = useState<globalThis.Map<string, TracedRoute>>(() => new globalThis.Map());
+  const { arcs, endpoints, particles, blockedMarkers, activeCableIds, hopMarkers, blockedFlashes } = useArcAnimation(connections, userPos, dnsStats.blocked_count, blockedAttempts, showHops ? tracedRoutes : emptyRoutes, activeServiceFilter, latencyHeatmap, selectedEndpoint?.id ?? null);
   const bandwidth = useBandwidth(capturing);
   const { apps: firewallApps, setRule: setFirewallRule, mode: firewallMode, setMode: setFirewallMode, deleteRuleById } = useFirewallRules();
   const { serviceSamples, serviceBreakdown, serviceColors } = useServiceBandwidth(connections, bandwidth);
@@ -298,6 +353,7 @@ function App() {
   const handleMapClick = useCallback(() => {
     setSelectedId(null);
     startTransition(() => setSelectedEndpoint(null));
+    setActiveServiceFilter(null);
   }, []);
 
 
@@ -391,10 +447,103 @@ function App() {
           </Marker>
         )}
 
+        {/* Blocked DNS flash markers — red X polygons that float up and fade */}
+        {location && blockedFlashes.map((flash, fi) => {
+          const age = Date.now() - flash.timestamp;
+          const t = Math.min(age / 3000, 1);
+          const opacity = 1 - t * t; // ease-out fade
+          const yOffset = -30 - t * 50; // float upward
+          const xOffset = ((fi % 5) - 2) * 12; // spread horizontally
+          if (opacity <= 0) return null;
+          return (
+            <Marker key={flash.id} longitude={location.longitude} latitude={location.latitude} anchor="center">
+              <div className="blocked-flash" style={{ opacity, transform: `translate(${xOffset}px, ${yOffset}px)` }}>
+                <svg viewBox="0 0 20 28" className="blocked-flash__pin">
+                  <defs>
+                    <linearGradient id="blocked-pin-grad" x1="10" y1="0" x2="10" y2="28" gradientUnits="userSpaceOnUse">
+                      <stop offset="0%" stopColor="#ff4444" stopOpacity="0.9" />
+                      <stop offset="50%" stopColor="#cc2222" stopOpacity="0.6" />
+                      <stop offset="100%" stopColor="#991111" stopOpacity="0.3" />
+                    </linearGradient>
+                  </defs>
+                  <polygon points="10,0 3,4 10,6" fill="url(#blocked-pin-grad)" opacity="0.9" />
+                  <polygon points="10,0 17,4 10,6" fill="url(#blocked-pin-grad)" opacity="0.7" />
+                  <polygon points="3,4 10,6 10,28" fill="url(#blocked-pin-grad)" opacity="0.6" />
+                  <polygon points="17,4 10,6 10,28" fill="url(#blocked-pin-grad)" opacity="0.4" />
+                  <path d="M10,0 L3,4 L10,28 L17,4 Z" fill="none" stroke="rgba(255,68,68,0.5)" strokeWidth="0.6" strokeLinejoin="round" />
+                </svg>
+                <span className="blocked-flash__x">✕</span>
+              </div>
+            </Marker>
+          );
+        })}
+
+        {/* User location ground dot */}
+        {location && (
+          <Marker longitude={location.longitude} latitude={location.latitude} anchor="center">
+            <div className="user-ground-dot" />
+          </Marker>
+        )}
+
+        {/* Hop waypoint markers — small downward-pointing pins with glowing rabbit SVG */}
+        {showHops && hopMarkers.map((hop, i) => (
+          <Marker key={`hop-${i}`} longitude={hop.position[0]} latitude={hop.position[1]} anchor="bottom">
+            <div className="hop-marker">
+              <svg viewBox="0 0 24 24" fill="none" className="hop-marker__rabbit">
+                <path d="M13 16a3 3 0 0 1 2.24 5" stroke="url(#rabbit-glow)" strokeWidth="1.5" strokeLinecap="round" />
+                <path d="M18 12h.01" stroke="url(#rabbit-glow)" strokeWidth="1.5" strokeLinecap="round" />
+                <path d="M18 21h-8a4 4 0 0 1-4-4 7 7 0 0 1 7-7h.2L9.6 6.4a1 1 0 1 1 2.8-2.8L15.8 7h.2c3.3 0 6 2.7 6 6v1a2 2 0 0 1-2 2h-1a3 3 0 0 0-3 3" stroke="url(#rabbit-glow)" strokeWidth="1.5" strokeLinecap="round" />
+                <path d="M20 8.54V4a2 2 0 1 0-4 0v3" stroke="url(#rabbit-glow)" strokeWidth="1.5" strokeLinecap="round" />
+                <path d="M7.612 12.524a3 3 0 1 0-1.6 4.3" stroke="url(#rabbit-glow)" strokeWidth="1.5" strokeLinecap="round" />
+                <defs>
+                  <linearGradient id="rabbit-glow" x1="4" y1="2" x2="22" y2="22" gradientUnits="userSpaceOnUse">
+                    <stop stopColor="#e0d0ff" />
+                    <stop offset="1" stopColor="#a78bfa" />
+                  </linearGradient>
+                </defs>
+              </svg>
+              <svg viewBox="0 0 20 28" className="hop-marker__pin">
+                <defs>
+                  <linearGradient id="hop-pin-grad" x1="10" y1="0" x2="10" y2="28" gradientUnits="userSpaceOnUse">
+                    <stop offset="0%" stopColor="#e0d0ff" stopOpacity="0.5" />
+                    <stop offset="50%" stopColor="#a78bfa" stopOpacity="0.3" />
+                    <stop offset="100%" stopColor="#7c3aed" stopOpacity="0.15" />
+                  </linearGradient>
+                  <linearGradient id="hop-pin-edge" x1="10" y1="0" x2="10" y2="28" gradientUnits="userSpaceOnUse">
+                    <stop offset="0%" stopColor="#e0d0ff" stopOpacity="0.8" />
+                    <stop offset="100%" stopColor="#a78bfa" stopOpacity="0.3" />
+                  </linearGradient>
+                </defs>
+                {/* Faceted gem shape: flat top, angled shoulders, long spike bottom */}
+                {/* Left face */}
+                <polygon points="10,0 3,4 10,6" fill="url(#hop-pin-grad)" opacity="0.95" />
+                {/* Right face */}
+                <polygon points="10,0 17,4 10,6" fill="url(#hop-pin-grad)" opacity="0.75" />
+                {/* Bottom left */}
+                <polygon points="3,4 10,6 10,28" fill="url(#hop-pin-grad)" opacity="0.65" />
+                {/* Bottom right */}
+                <polygon points="17,4 10,6 10,28" fill="url(#hop-pin-grad)" opacity="0.45" />
+                {/* Edge wireframe */}
+                <path d="M10,0 L3,4 L10,28 L17,4 Z" fill="none" stroke="url(#hop-pin-edge)" strokeWidth="0.6" strokeLinejoin="round" />
+                <line x1="10" y1="0" x2="10" y2="28" stroke="rgba(167,139,250,0.2)" strokeWidth="0.4" />
+                <line x1="3" y1="4" x2="17" y2="4" stroke="rgba(224,208,255,0.4)" strokeWidth="0.5" />
+              </svg>
+            </div>
+          </Marker>
+        ))}
+
         <SubmarineCableLayer activeCableIds={activeCableIds} />
-        <NetworkArcLayer arcs={arcs} particles={particles} blockedMarkers={blockedMarkers} showParticles={showParticles} heatmapData={heatmapData} showHeatmap={showHeatmap} endpoints={endpoints} />
+        <NetworkArcLayer arcs={arcs} particles={particles} blockedMarkers={blockedMarkers} showParticles={showParticles} heatmapData={heatmapData} showHeatmap={showHeatmap} endpoints={
+            selectedEndpoint ? endpoints.filter((ep) => ep.id === selectedEndpoint.id)
+            : activeServiceFilter ? endpoints.filter((ep) => ep.services.includes(activeServiceFilter))
+            : endpoints
+          } hopMarkers={hopMarkers} showHops={showHops} />
         <EndpointLayer
-          endpoints={endpoints}
+          endpoints={
+            selectedEndpoint ? endpoints.filter((ep) => ep.id === selectedEndpoint.id)
+            : activeServiceFilter ? endpoints.filter((ep) => ep.services.includes(activeServiceFilter))
+            : endpoints
+          }
           zoom={viewState.zoom}
           selectedId={selectedId}
           onSelect={handleEndpointSelect}
@@ -415,6 +564,7 @@ function App() {
               connections={connections}
               bandwidth={bandwidth}
               onBack={() => { setSelectedId(null); startTransition(() => setSelectedEndpoint(null)); }}
+              tracedRoutes={tracedRoutes}
             />
           ) : (
             <>
@@ -429,7 +579,7 @@ function App() {
                 size="md"
               />
               {sidebarTab === "network" ? (
-                <GlobalStats connections={connections} totalEver={totalEver} bandwidth={bandwidth} serviceSamples={serviceSamples} serviceBreakdown={serviceBreakdown} serviceColors={serviceColors} downloadMbps={speedTest.downloadMbps} uploadMbps={speedTest.uploadMbps} pingMs={speedTest.pingMs} speedTesting={speedTest.testing} lastSpeedTestTime={speedTest.lastTestTime} onRunSpeedTest={speedTest.runTest} speedStage={speedTest.stage} liveDownloadMbps={speedTest.liveDownloadMbps} liveUploadMbps={speedTest.liveUploadMbps} speedPercent={speedTest.percent} />
+                <GlobalStats connections={showInactive ? connections : connections.filter((c) => c.active)} totalEver={totalEver} bandwidth={bandwidth} serviceSamples={serviceSamples} serviceBreakdown={serviceBreakdown} serviceColors={serviceColors} downloadMbps={speedTest.downloadMbps} uploadMbps={speedTest.uploadMbps} pingMs={speedTest.pingMs} speedTesting={speedTest.testing} lastSpeedTestTime={speedTest.lastTestTime} onRunSpeedTest={speedTest.runTest} speedStage={speedTest.stage} liveDownloadMbps={speedTest.liveDownloadMbps} liveUploadMbps={speedTest.liveUploadMbps} speedPercent={speedTest.percent} activeServiceFilter={activeServiceFilter} onServiceClick={setActiveServiceFilter} onOpenTreemap={() => setTreemapOpen(true)} />
               ) : sidebarTab === "trackers" ? (
                 <TrackerStats visible={sidebarTab === "trackers"} />
               ) : (
@@ -462,13 +612,32 @@ function App() {
         </div>
       )}
 
-      <div className="zoom-controls">
-        <span className="map-btn-tooltip" data-tooltip="Heat map">
-          <Button variant={showHeatmap ? "primary" : "secondary"} size="md" icon={flame} iconOnly aria-label="Toggle heat map" onClick={() => setShowHeatmap(!showHeatmap)} />
-        </span>
-        <span className="map-btn-tooltip" data-tooltip="Particles">
-          <Button variant={showParticles ? "primary" : "secondary"} size="md" icon={sparkles} iconOnly aria-label="Toggle particles" onClick={() => setShowParticles(!showParticles)} />
-        </span>
+      {neUpdateNeeded && (
+        <div className="elevation-banner" style={{ background: "rgba(147, 130, 255, 0.15)", borderColor: "rgba(147, 130, 255, 0.4)" }}>
+          <span>Network Extension needs updating — click Update, then approve in System Settings if prompted</span>
+          <Button variant="primary" size="sm" onClick={async () => {
+            try {
+              // Deactivate old NE first
+              try { await invoke("deactivate_network_extension"); } catch {}
+              // Wait for macOS to fully unload the old extension
+              await new Promise((r) => setTimeout(r, 3000));
+              // Reactivate — loads new binary from current app bundle
+              // This may prompt for user approval in System Settings
+              await invoke("activate_network_extension");
+              setNeUpdateNeeded(false);
+            } catch (e) {
+              console.error("NE update failed:", e);
+            }
+          }}>Update</Button>
+          <Button variant="ghost" size="sm" onClick={() => {
+            setNeUpdateNeeded(false);
+            invoke("set_preference", { key: "ne_update_dismissed", value: "true" }).catch(() => {});
+          }}>Dismiss</Button>
+        </div>
+      )}
+
+      {/* Upper controls — navigation */}
+      <div className="map-controls-upper">
         <span className="map-btn-tooltip" data-tooltip="My location">
           <Button variant="secondary" size="md" icon={locateFixed} iconOnly aria-label="Go to my location" onClick={goHome} />
         </span>
@@ -478,12 +647,34 @@ function App() {
         <span className="map-btn-tooltip" data-tooltip="Zoom out">
           <Button variant="secondary" size="md" icon={minus} iconOnly aria-label="Zoom out" onClick={zoomOut} />
         </span>
+      </div>
+
+      {/* Lower controls — visualization toggles */}
+      <div className="zoom-controls">
+        <span className="map-btn-tooltip" data-tooltip="Heat map">
+          <Button variant={showHeatmap ? "primary" : "secondary"} size="md" icon={flame} iconOnly aria-label="Toggle heat map" onClick={() => setShowHeatmap(!showHeatmap)} />
+        </span>
+        <span className="map-btn-tooltip" data-tooltip="Particles">
+          <Button variant={showParticles ? "primary" : "secondary"} size="md" icon={sparkles} iconOnly aria-label="Toggle particles" onClick={() => setShowParticles(!showParticles)} />
+        </span>
+        <span className="map-btn-tooltip" data-tooltip="Route hops">
+          <Button variant={showHops ? "primary" : "secondary"} size="md" icon={rabbit} iconOnly aria-label="Toggle route hops" onClick={() => setShowHops(!showHops)} />
+        </span>
+        <span className="map-btn-tooltip" data-tooltip="Latency heatmap">
+          <Button variant={latencyHeatmap ? "primary" : "secondary"} size="md" icon={thermometer} iconOnly aria-label="Toggle latency heatmap" onClick={() => { setLatencyHeatmap(!latencyHeatmap); invoke("set_preference", { key: "route_latency_heatmap", value: String(!latencyHeatmap) }).catch(() => {}); }} />
+        </span>
         <span className="map-btn-tooltip" data-tooltip="Settings">
           <Button variant="secondary" size="md" icon={settings} iconOnly aria-label="Settings" onClick={() => setSettingsOpen(true)} />
         </span>
       </div>
 
       <Settings open={settingsOpen} onClose={() => setSettingsOpen(false)} firewallMode={firewallMode} onFirewallModeChange={setFirewallMode} />
+
+      <NetworkTreemapModal
+        open={treemapOpen}
+        onClose={() => setTreemapOpen(false)}
+        connections={connections}
+      />
 
       <FirewallAlertOverlay
         alerts={firewallAlerts.filter((a) => !activeAlert || a.id !== activeAlert.id)}
@@ -529,6 +720,10 @@ function App() {
         <SetupPrompt onComplete={() => {
           setShowSetup(false);
         }} />
+      )}
+
+      {showWizard && (
+        <SetupWizard onComplete={() => setShowWizard(false)} />
       )}
 
     </div>

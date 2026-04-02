@@ -87,5 +87,27 @@ export function useAppUpdate() {
     setUpdateInfo(null);
   }, []);
 
-  return { available, updateInfo, downloading, progress, error, installUpdate, dismiss };
+  // Manual check — called from the About tab button
+  const [checking, setChecking] = useState(false);
+  const [upToDate, setUpToDate] = useState(false);
+  const manualCheck = useCallback(async () => {
+    setChecking(true);
+    setUpToDate(false);
+    setError(null);
+    try {
+      const update = await check();
+      if (update) {
+        setAvailable(true);
+        setUpdateInfo({ version: update.version, body: update.body ?? "" });
+      } else {
+        setUpToDate(true);
+        setTimeout(() => setUpToDate(false), 3000);
+      }
+    } catch (e) {
+      setError(String(e));
+    }
+    setChecking(false);
+  }, []);
+
+  return { available, updateInfo, downloading, progress, error, installUpdate, dismiss, manualCheck, checking, upToDate };
 }

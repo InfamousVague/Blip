@@ -1,0 +1,185 @@
+/* NetworkTreemapModal — full-screen treemap with drill-down */
+
+.treemap-modal {
+  width: 90vw;
+  max-width: 1400px;
+  height: 80vh;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0 !important;
+  overflow: hidden;
+}
+
+.treemap-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px 12px;
+  flex-shrink: 0;
+}
+
+.treemap-modal__header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.treemap-modal__title {
+  font-family: var(--font-sans);
+  font-size: 16px;
+  font-weight: 650;
+  color: var(--blip-text-primary);
+}
+
+.treemap-modal__total {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--blip-text-tertiary);
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.treemap-modal__breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 20px 12px;
+  flex-shrink: 0;
+}
+
+.treemap-modal__crumb {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--blip-text-tertiary);
+  cursor: pointer;
+  border: none;
+  background: none;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+}
+
+.treemap-modal__crumb:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--blip-text-primary);
+}
+
+.treemap-modal__crumb--active {
+  color: var(--blip-text-secondary);
+  cursor: default;
+}
+
+.treemap-modal__crumb--active:hover {
+  background: transparent;
+  color: var(--blip-text-secondary);
+}
+
+.treemap-modal__sep {
+  font-size: 11px;
+  color: var(--blip-text-tertiary);
+  opacity: 0.5;
+}
+
+.treemap-modal__close {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: none;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--blip-text-tertiary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.treemap-modal__close:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--blip-text-primary);
+}
+
+.treemap-modal__body {
+  flex: 1;
+  min-height: 0;
+  padding: 0 20px 20px;
+}
+
+.treemap-modal__empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  color: var(--blip-text-tertiary);
+}
+
+/* Tooltip */
+.treemap-modal__tooltip {
+  position: fixed;
+  pointer-events: none;
+  z-index: 10000;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: rgba(10, 8, 16, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 140px;
+  max-width: 280px;
+}
+
+.treemap-modal__tooltip-name {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--blip-text-primary);
+}
+
+.treemap-modal__tooltip-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.treemap-modal__tooltip-label {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  color: var(--blip-text-tertiary);
+}
+
+.treemap-modal__tooltip-value {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--blip-text-secondary);
+}
+
+/* Up/down split bar */
+.treemap-modal__split-bar {
+  display: flex;
+  height: 3px;
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 2px;
+}
+
+.treemap-modal__split-up {
+  background: #ec4899;
+  opacity: 0.7;
+}
+
+.treemap-modal__split-down {
+  background: #6366f1;
+  opacity: 0.7;
+}

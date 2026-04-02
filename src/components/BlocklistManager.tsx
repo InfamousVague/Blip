@@ -24,10 +24,19 @@ interface BlocklistInfo {
 }
 
 const POPULAR_LISTS = [
-  { name: "Steven Black's Unified Hosts", url: "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts" },
-  { name: "AdGuard DNS Filter", url: "https://adguardteam.github.io/AdGuardSDNSFilter/Filters/filter.txt" },
-  { name: "EasyList", url: "https://easylist.to/easylist/easylist.txt" },
-  { name: "Pi-hole Default", url: "https://raw.githubusercontent.com/StevenBlack/hosts/master/alternates/fakenews-gambling-porn/hosts" },
+  // Comprehensive — curated, well-maintained, good defaults
+  { name: "OISD Big", url: "https://big.oisd.nl/domainswild2", desc: "Comprehensive ads + trackers + malware (~200k domains)" },
+  { name: "Hagezi Multi Pro", url: "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/wildcard/pro-onlydomains.txt", desc: "Aggressive tracking + ads + crypto mining (~300k domains)" },
+  { name: "Steven Black Unified", url: "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts", desc: "Classic hosts file — ads + malware (~170k domains)" },
+
+  // Privacy-focused
+  { name: "Hagezi Threat Intelligence", url: "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/wildcard/tif-onlydomains.txt", desc: "Malware, phishing, cryptojacking, scam domains" },
+  { name: "AdGuard DNS Filter", url: "https://adguardteam.github.io/AdGuardSDNSFilter/Filters/filter.txt", desc: "AdGuard's curated DNS-level ad blocking" },
+  { name: "1Hosts Lite", url: "https://o0.pages.dev/Lite/domains.txt", desc: "Lightweight privacy list — minimal false positives" },
+
+  // Telemetry & fingerprinting
+  { name: "Hagezi Anti-Piracy", url: "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/wildcard/anti.piracy-onlydomains.txt", desc: "Blocks piracy tracking and reporting domains" },
+  { name: "NoTracking", url: "https://raw.githubusercontent.com/notracking/hosts-blocklists/master/dnscrypt-proxy/dnscrypt-proxy.blacklist.txt", desc: "Trackers and analytics domains" },
 ];
 
 export function BlocklistManager() {
@@ -174,7 +183,10 @@ export function BlocklistManager() {
           <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "stretch" }}>
             {POPULAR_LISTS.filter((preset) => !lists.some((l) => l.source_url === preset.url)).map((preset) => (
               <div key={preset.url} style={{ display: "flex", flexDirection: "row", gap: 8, alignItems: "center", justifyContent: "space-between" }}>
-                <span className="blip-text-row-title" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, fontWeight: 400 }}>{preset.name}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <span className="blip-text-row-title" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block", fontWeight: 500 }}>{preset.name}</span>
+                  {"desc" in preset && <span className="blip-text-row-desc" style={{ fontSize: 10, opacity: 0.6 }}>{(preset as any).desc}</span>}
+                </div>
                 <Button
                   variant="ghost"
                   size="sm"

@@ -2,13 +2,14 @@ import Foundation
 import NetworkExtension
 import os.log
 
-/// NEFilterDataProvider — Phase 2 passive monitoring with socket bridge.
+/// NEFilterDataProvider — Full firewall with rule engine.
 /// SAFETY RULES:
-/// 1. handleNewFlow() MUST return .allow() immediately — never block
+/// 1. handleNewFlow() MUST return immediately — never block
 /// 2. ALL processing (socket, string ops, process lookup) on background queue
 /// 3. Every operation wrapped in do/catch — no crashes, no exceptions
 /// 4. Socket failures are silently dropped — never propagate to filter
 /// 5. macOS fail-closed: if this extension crashes, ALL internet dies
+/// 6. On ANY error in the match path → .allow(). Never block traffic due to bugs.
 class BlipFilterProvider: NEFilterDataProvider {
 
     private let log = OSLog(subsystem: "com.infamousvague.blip.network-extension", category: "filter")
@@ -21,14 +22,34 @@ class BlipFilterProvider: NEFilterDataProvider {
     private var blockedIPs: Set<String> = []
     private let blockedIPsLock = NSLock()
 
-    /// Firewall rules: app bundle ID → action ("allow", "deny", "unspecified")
-    private var firewallRules: [String: String] = [:]
-    private let firewallRulesLock = NSLock()
+    /// Pre-compiled rule matching engine.
+    private let ruleIndex = RuleIndex()
+
+    /// IP→domain cache populated from DNS proxy events.
+    private var ipToDomain: [String: (domain: String, timestamp: UInt64)] = [:]
+    private let ipToDomainLock = NSLock()
+    private let ipToDomainMaxEntries = 50_000
+    private let ipToDomainTTLMs: UInt64 = 300_000 // 5 minutes
+
+    /// System whitelist — Apple processes that always pass through.
+    private let systemWhitelist: Set<String> = [
+        "com.apple.mDNSResponder", "com.apple.trustd", "com.apple.nsurlsessiond",
+        "com.apple.softwareupdated", "com.apple.mobileassetd", "com.apple.AppleIDAuthAgent",
+        "com.apple.akd", "com.apple.cloudd", "com.apple.identityservicesd",
+        "com.apple.timed", "com.apple.networkserviceproxy", "com.apple.symptomsd",
+        "com.apple.mediaremoted", "com.apple.apsd", "com.apple.CommCenter",
+        "com.apple.geod", "com.apple.locationd", "com.apple.parsecd",
+        "com.apple.security.cloudkeychainproxy3", "com.apple.iCloudNotificationAgent",
+        "com.infamousvague.blip",
+    ]
 
     /// Per-flow byte accumulators — keyed by "destIp:destPort"
     private var flowBytes: [String: FlowByteTracker] = [:]
     private let flowBytesLock = NSLock()
     private var flowReportTimer: DispatchSourceTimer?
+
+    /// Pending approval requests (flow allowed temporarily, waiting for user decision)
+    private var pendingApprovals: [String: UInt64] = [:] // requestId → timestamp
 
     struct FlowByteTracker {
         var bytesIn: UInt64 = 0
@@ -42,8 +63,8 @@ class BlipFilterProvider: NEFilterDataProvider {
     // MARK: - Filter Lifecycle
 
     override func startFilter(completionHandler: @escaping (Error?) -> Void) {
-        os_log("BlipFilter: starting", log: log, type: .info)
-        neDebugLog("BlipFilter: startFilter called")
+        os_log("BlipFilter: starting (v2 rule engine)", log: log, type: .info)
+        neDebugLog("BlipFilter: startFilter called (v2)")
 
         let networkRule = NENetworkRule(
             remoteNetwork: nil,
@@ -61,7 +82,6 @@ class BlipFilterProvider: NEFilterDataProvider {
                 os_log("BlipFilter: failed to apply settings: %{public}@", log: self.log, type: .error, error.localizedDescription)
             } else {
                 os_log("BlipFilter: settings applied, filter active", log: self.log, type: .info)
-                // Start socket bridge on background queue — never block startFilter
                 self.workQueue.async {
                     self.socketBridge = SocketBridge()
                     self.socketBridge?.delegate = self
@@ -82,14 +102,12 @@ class BlipFilterProvider: NEFilterDataProvider {
         completionHandler()
     }
 
-    // MARK: - Flow Handling
+    // MARK: - Flow Handling (HOT PATH — must be <1ms)
 
     override func handleNewFlow(_ flow: NEFilterFlow) -> NEFilterNewFlowVerdict {
-        // SAFETY: Return .allow() FIRST, then do work on background queue.
-        // This method is called on the filter's main queue — any delay = internet stalls.
         flowCount += 1
 
-        // Capture everything we need from the flow object NOW (it may be invalid later)
+        // Extract flow info — if any guard fails, allow
         guard let socketFlow = flow as? NEFilterSocketFlow,
               let remoteEndpoint = socketFlow.remoteEndpoint as? NWHostEndpoint else {
             return .allow()
@@ -98,96 +116,135 @@ class BlipFilterProvider: NEFilterDataProvider {
         let destIp = remoteEndpoint.hostname
         let destPort = UInt16(remoteEndpoint.port) ?? 0
 
-        // Skip private/loopback — no need to report these
-        if destIp == "127.0.0.1" || destIp == "::1" || destIp.hasPrefix("fe80:") || isPrivateIP(destIp) {
+        // 1. Always allow localhost
+        if destIp == "127.0.0.1" || destIp == "::1" || destIp.hasPrefix("fe80:") {
             return .allow()
         }
 
-        // Skip connections from Blip itself to avoid feedback loop
-        // (each Tauri invoke creates a connection the NE sees → event → store → repeat)
-        if let token = socketFlow.sourceAppAuditToken,
-           let bid = bundleIdentifier(from: token),
-           bid == "com.infamousvague.blip" || bid.hasPrefix("com.infamousvague.blip.") {
+        // 2. Always allow LAN (private IPs)
+        if isPrivateIP(destIp) {
             return .allow()
         }
 
-        // Check if this IP is blocked (populated from DNS proxy via app)
+        // 3. Resolve bundle ID
+        var bundleId: String? = nil
+        if let token = socketFlow.sourceAppAuditToken {
+            bundleId = bundleIdentifier(from: token)
+        }
+
+        // 4. System whitelist — always allow Apple processes and Blip itself
+        if let bid = bundleId, systemWhitelist.contains(bid) {
+            return .allow()
+        }
+
+        // 5. Check DNS-blocked IPs
         blockedIPsLock.lock()
         let isBlocked = blockedIPs.contains(destIp)
         blockedIPsLock.unlock()
         if isBlocked {
             blockedCount += 1
+            sendBlockEvent(bundleId: bundleId ?? "unknown", destIp: destIp, destPort: destPort,
+                           proto: "unknown", direction: "outbound", reason: "dns_block", ruleId: nil)
             return .drop()
         }
 
-        // Check firewall rules by app bundle ID
-        let auditToken = socketFlow.sourceAppAuditToken
-        if let token = auditToken {
-            if let bundleId = bundleIdentifier(from: token) {
-                firewallRulesLock.lock()
-                let rule = firewallRules[bundleId] ?? firewallRules["*"]
-                firewallRulesLock.unlock()
-                if let action = rule {
-                    if action == "deny" {
-                        return .drop()
-                    } else if action == "allow" {
-                        return .allow()
-                    }
-                    // "unspecified" falls through to normal processing
-                }
-            }
-        }
+        // 6. Look up domain from DNS cache
+        ipToDomainLock.lock()
+        let cachedDomain = ipToDomain[destIp]?.domain
+        ipToDomainLock.unlock()
 
-        let proto: String
+        // 7. Determine protocol and direction
+        let proto: CompiledProtocol
         switch socketFlow.socketProtocol {
-        case 6:  proto = "tcp"
-        case 17: proto = "udp"
-        default: proto = "other"
+        case 6:  proto = .tcp
+        case 17: proto = .udp
+        default: proto = .any
         }
 
-        let direction: String
+        let dir: CompiledDirection
         switch socketFlow.direction {
-        case .outbound: direction = "outbound"
-        case .inbound:  direction = "inbound"
-        default:        direction = "any"
+        case .outbound: dir = .outbound
+        case .inbound:  dir = .inbound
+        default:        dir = .any
         }
-        let ts = UInt64(Date().timeIntervalSince1970 * 1000)
 
-        // Fire-and-forget on background queue
-        workQueue.async { [weak self] in
-            guard let self = self else { return }
+        // 8. Match against rule index
+        let matchResult = ruleIndex.match(
+            bundleId: bundleId ?? "*",
+            domain: cachedDomain,
+            port: destPort,
+            proto: proto,
+            dir: dir
+        )
 
-            // Resolve bundle ID — wrapped in safety
-            var bundleId = "unknown"
-            do {
-                if let token = auditToken {
-                    bundleId = self.bundleIdentifier(from: token) ?? "unknown"
-                }
-            } catch {
-                // Should never happen but catch anyway
+        let protoStr: String
+        switch proto {
+        case .tcp: protoStr = "tcp"
+        case .udp: protoStr = "udp"
+        case .any: protoStr = "other"
+        }
+
+        let dirStr: String
+        switch dir {
+        case .outbound: dirStr = "outbound"
+        case .inbound:  dirStr = "inbound"
+        case .any:      dirStr = "any"
+        }
+
+        let bid = bundleId ?? "unknown"
+        let verdict: NEFilterNewFlowVerdict
+
+        if let (action, ruleId) = matchResult {
+            switch action {
+            case .allow:
+                verdict = .filterDataVerdict(withFilterInbound: true, peekInboundBytes: Int.max,
+                                             filterOutbound: true, peekOutboundBytes: Int.max)
+                sendConnectionEvent(bundleId: bid, destIp: destIp, destPort: destPort,
+                                    proto: protoStr, direction: dirStr, verdict: "allow",
+                                    matchedRuleId: ruleId, domain: cachedDomain)
+            case .deny:
+                verdict = .drop()
+                blockedCount += 1
+                sendBlockEvent(bundleId: bid, destIp: destIp, destPort: destPort,
+                               proto: protoStr, direction: dirStr, reason: "rule", ruleId: ruleId)
+                sendConnectionEvent(bundleId: bid, destIp: destIp, destPort: destPort,
+                                    proto: protoStr, direction: dirStr, verdict: "deny",
+                                    matchedRuleId: ruleId, domain: cachedDomain)
+            case .ask:
+                // Allow temporarily, send approval request
+                verdict = .filterDataVerdict(withFilterInbound: true, peekInboundBytes: Int.max,
+                                             filterOutbound: true, peekOutboundBytes: Int.max)
+                sendApprovalRequest(bundleId: bid, destIp: destIp, destPort: destPort,
+                                   proto: protoStr, direction: dirStr, domain: cachedDomain)
             }
-
-            let event = NEConnectionEvent(
-                sourceAppId: bundleId,
-                sourcePid: 0,
-                destIp: destIp,
-                destPort: Int(destPort),
-                protocol: proto,
-                direction: direction,
-                timestampMs: ts
-            )
-
-            // Send to app — silently drops if not connected
-            self.socketBridge?.send(event: event)
+        } else {
+            // No matching rule — use mode-based default
+            switch ruleIndex.mode {
+            case "deny_all":
+                verdict = .drop()
+                blockedCount += 1
+                sendBlockEvent(bundleId: bid, destIp: destIp, destPort: destPort,
+                               proto: protoStr, direction: dirStr, reason: "deny_all_mode", ruleId: nil)
+            case "ask":
+                // Allow temporarily, ask user
+                verdict = .filterDataVerdict(withFilterInbound: true, peekInboundBytes: Int.max,
+                                             filterOutbound: true, peekOutboundBytes: Int.max)
+                sendApprovalRequest(bundleId: bid, destIp: destIp, destPort: destPort,
+                                   proto: protoStr, direction: dirStr, domain: cachedDomain)
+            default: // "allow_all" or unknown
+                verdict = .filterDataVerdict(withFilterInbound: true, peekInboundBytes: Int.max,
+                                             filterOutbound: true, peekOutboundBytes: Int.max)
+                sendConnectionEvent(bundleId: bid, destIp: destIp, destPort: destPort,
+                                    proto: protoStr, direction: dirStr, verdict: "allow",
+                                    matchedRuleId: nil, domain: cachedDomain)
+            }
         }
 
-        // Return filterDataVerdict to get handleInboundData/handleOutboundData called for byte tracking.
-        // peekInboundBytes/peekOutboundBytes = Int.max means "pass all data through the handlers".
-        // The data handlers immediately return .allow() so data is never delayed.
-        return .filterDataVerdict(withFilterInbound: true, peekInboundBytes: Int.max, filterOutbound: true, peekOutboundBytes: Int.max)
+        return verdict
     }
 
-    // Data handlers — track bytes then return .allow() immediately
+    // MARK: - Data Handlers (byte tracking)
+
     override func handleInboundData(from flow: NEFilterFlow, readBytesStartOffset: Int, readBytes: Data) -> NEFilterDataVerdict {
         trackBytes(flow: flow, bytesIn: UInt64(readBytes.count), bytesOut: 0)
         return .allow()
@@ -198,7 +255,6 @@ class BlipFilterProvider: NEFilterDataProvider {
         return .allow()
     }
 
-    /// Accumulate bytes for a flow. The timer sends batched updates to the app.
     private func trackBytes(flow: NEFilterFlow, bytesIn: UInt64, bytesOut: UInt64) {
         guard let socketFlow = flow as? NEFilterSocketFlow,
               let remoteEndpoint = socketFlow.remoteEndpoint as? NWHostEndpoint else {
@@ -209,7 +265,6 @@ class BlipFilterProvider: NEFilterDataProvider {
         let destPort = Int(UInt16(remoteEndpoint.port) ?? 0)
         let key = "\(destIp):\(destPort)"
 
-        // Resolve app bundle ID
         var appId = "unknown"
         if let token = socketFlow.sourceAppAuditToken {
             appId = bundleIdentifier(from: token) ?? "unknown"
@@ -230,7 +285,69 @@ class BlipFilterProvider: NEFilterDataProvider {
         flowBytesLock.unlock()
     }
 
-    /// Periodically flush accumulated bytes to the main app via socket.
+    // MARK: - Event Senders (background queue)
+
+    private func sendConnectionEvent(bundleId: String, destIp: String, destPort: UInt16,
+                                     proto: String, direction: String, verdict: String,
+                                     matchedRuleId: String?, domain: String?) {
+        workQueue.async { [weak self] in
+            let ts = UInt64(Date().timeIntervalSince1970 * 1000)
+            let event = NEConnectionEvent(
+                sourceAppId: bundleId, sourcePid: 0,
+                destIp: destIp, destPort: Int(destPort),
+                protocol: proto, direction: direction, timestampMs: ts
+            )
+            self?.socketBridge?.send(event: event, verdict: verdict,
+                                    matchedRuleId: matchedRuleId, domain: domain)
+        }
+    }
+
+    private func sendApprovalRequest(bundleId: String, destIp: String, destPort: UInt16,
+                                     proto: String, direction: String, domain: String?) {
+        workQueue.async { [weak self] in
+            let requestId = UUID().uuidString
+            let ts = UInt64(Date().timeIntervalSince1970 * 1000)
+
+            self?.pendingApprovals[requestId] = ts
+
+            let request: [String: Any] = [
+                "id": requestId,
+                "app_id": bundleId,
+                "app_name": bundleId.components(separatedBy: ".").last ?? bundleId,
+                "domain": domain as Any,
+                "dest_ip": destIp,
+                "dest_port": destPort,
+                "protocol": proto,
+                "direction": direction,
+                "is_background": false,
+                "is_tracker": false,
+                "timestamp_ms": ts,
+            ]
+            self?.socketBridge?.sendApprovalRequest(request)
+        }
+    }
+
+    private func sendBlockEvent(bundleId: String, destIp: String, destPort: UInt16,
+                                proto: String, direction: String, reason: String, ruleId: String?) {
+        workQueue.async { [weak self] in
+            let ts = UInt64(Date().timeIntervalSince1970 * 1000)
+            let event: [String: Any] = [
+                "type": "block_event",
+                "app_id": bundleId,
+                "dest_ip": destIp,
+                "dest_port": destPort,
+                "protocol": proto,
+                "direction": direction,
+                "reason": reason,
+                "rule_id": ruleId as Any,
+                "timestamp_ms": ts,
+            ]
+            self?.socketBridge?.sendRaw(jsonDict: event)
+        }
+    }
+
+    // MARK: - Flow Report Timer
+
     private func startFlowReportTimer() {
         let timer = DispatchSource.makeTimerSource(queue: workQueue)
         timer.schedule(deadline: .now() + 2.0, repeating: 2.0)
@@ -244,7 +361,6 @@ class BlipFilterProvider: NEFilterDataProvider {
     private func flushFlowUpdates() {
         flowBytesLock.lock()
         let snapshot = flowBytes
-        // Don't clear — keep cumulative totals. The Rust side uses "only update if larger".
         flowBytesLock.unlock()
 
         let ts = UInt64(Date().timeIntervalSince1970 * 1000)
@@ -262,6 +378,12 @@ class BlipFilterProvider: NEFilterDataProvider {
             )
             socketBridge?.send(flowUpdate: update)
         }
+
+        // Clean stale IP→domain cache entries (>5 min old)
+        let cutoff = ts - ipToDomainTTLMs
+        ipToDomainLock.lock()
+        ipToDomain = ipToDomain.filter { $0.value.timestamp > cutoff }
+        ipToDomainLock.unlock()
     }
 
     // MARK: - Helpers
@@ -282,20 +404,17 @@ class BlipFilterProvider: NEFilterDataProvider {
     private func bundleIdentifier(from auditToken: Data?) -> String? {
         guard let token = auditToken, token.count >= 32 else { return nil }
 
-        // Extract PID from audit token (offset 20, 4 bytes)
         let pid = token.withUnsafeBytes { ptr -> Int32 in
             ptr.load(fromByteOffset: 20, as: Int32.self)
         }
         guard pid > 0 else { return nil }
 
-        // Get executable path from PID
         var pathBuffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
         let pathLen = proc_pidpath(pid, &pathBuffer, UInt32(MAXPATHLEN))
         guard pathLen > 0 else { return nil }
 
         let path = String(cString: pathBuffer)
 
-        // Walk up to .app bundle and read bundle ID from Info.plist
         var url = URL(fileURLWithPath: path)
         while url.pathExtension != "app" && url.path != "/" {
             url = url.deletingLastPathComponent()
@@ -309,7 +428,6 @@ class BlipFilterProvider: NEFilterDataProvider {
             }
         }
 
-        // Fallback: executable name
         return path.components(separatedBy: "/").last
     }
 }
@@ -328,13 +446,41 @@ extension BlipFilterProvider: SocketBridgeDelegate {
         os_log("BlipFilter: updated blocked IPs (%d entries)", log: log, type: .info, ips.count)
     }
 
-    func socketBridge(_ bridge: SocketBridge, didReceiveFirewallRules rules: [FirewallRule]) {
-        firewallRulesLock.lock()
-        firewallRules.removeAll()
-        for rule in rules {
-            firewallRules[rule.app_id] = rule.action
+    func socketBridge(_ bridge: SocketBridge, didReceiveFirewallRules rules: [FirewallRuleMsg]) {
+        // Legacy compat — ignore, use firewall_config instead
+    }
+
+    func socketBridge(_ bridge: SocketBridge, didReceiveFirewallConfig mode: String, killSwitch: Bool,
+                      profileId: String, rules: [[String: Any]]) {
+        ruleIndex.loadRules(from: rules, mode: mode, killSwitch: killSwitch, profileId: profileId)
+        neDebugLog("BlipFilter: loaded \(rules.count) rules, mode=\(mode), killSwitch=\(killSwitch)")
+    }
+
+    func socketBridge(_ bridge: SocketBridge, didReceiveDNSCacheUpdate mappings: [String: String]) {
+        let ts = UInt64(Date().timeIntervalSince1970 * 1000)
+        ipToDomainLock.lock()
+        for (ip, domain) in mappings {
+            ipToDomain[ip] = (domain: domain, timestamp: ts)
         }
-        firewallRulesLock.unlock()
-        neDebugLog("BlipFilter: updated firewall rules (\(rules.count) entries)")
+        // Evict if too large
+        if ipToDomain.count > ipToDomainMaxEntries {
+            let sorted = ipToDomain.sorted { $0.value.timestamp < $1.value.timestamp }
+            let removeCount = ipToDomain.count - ipToDomainMaxEntries + 1000
+            for (key, _) in sorted.prefix(removeCount) {
+                ipToDomain.removeValue(forKey: key)
+            }
+        }
+        ipToDomainLock.unlock()
+    }
+
+    func socketBridge(_ bridge: SocketBridge, didReceiveKillSwitch active: Bool) {
+        ruleIndex.killSwitch = active
+        neDebugLog("BlipFilter: kill switch \(active ? "ACTIVATED" : "deactivated")")
+    }
+
+    func socketBridge(_ bridge: SocketBridge, didReceiveApprovalVerdict requestId: String, action: String) {
+        pendingApprovals.removeValue(forKey: requestId)
+        neDebugLog("BlipFilter: approval verdict for \(requestId): \(action)")
+        // Note: The rule created from this verdict will be synced via firewall_config
     }
 }
