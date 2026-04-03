@@ -3,19 +3,19 @@
   "configurations": [
     {
       "name": "dev",
-      "runtimeExecutable": "npm",
+      "runtimeExecutable": "/opt/homebrew/bin/npm",
       "runtimeArgs": ["run", "dev"],
       "port": 5173
     },
     {
       "name": "perspective-tool",
-      "runtimeExecutable": "npx",
+      "runtimeExecutable": "/opt/homebrew/bin/npx",
       "runtimeArgs": ["serve", "tools", "-l", "5174", "--no-clipboard"],
       "port": 5174
     },
     {
       "name": "website",
-      "runtimeExecutable": "npm",
+      "runtimeExecutable": "/opt/homebrew/bin/npm",
       "runtimeArgs": ["run", "website:dev"],
       "port": 5175
     }

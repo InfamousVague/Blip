@@ -54,9 +54,9 @@ function FeatureIcon({ path }: { path: string }) {
 export function FeatureGrid() {
   return (
     <section className="site-section" id="features">
-      <h2 className="site-section__title">What Blip Does</h2>
+      <h2 className="site-section__title">And More</h2>
       <p className="site-section__subtitle">
-        Everything you need to understand and control your Mac's network activity.
+        Plus all the tools you need to understand and control your Mac's network.
       </p>
       <div className="feature-grid">
         {FEATURES.map((f) => (

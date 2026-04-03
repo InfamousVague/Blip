@@ -1,13 +1,15 @@
 import { useEffect, useState } from "react";
 import { HeroMap } from "./HeroMap";
-import { getLatestDmgUrl } from "../data/download-url";
+import { getLatestDmgUrl, getLatestVersion } from "../data/download-url";
 import "./HeroSection.css";
 
 export function HeroSection() {
   const [downloadUrl, setDownloadUrl] = useState("https://github.com/InfamousVague/Blip/releases/latest");
+  const [version, setVersion] = useState("");
 
   useEffect(() => {
     getLatestDmgUrl().then(setDownloadUrl);
+    getLatestVersion().then(setVersion);
   }, []);
 
   return (
@@ -28,7 +30,9 @@ export function HeroSection() {
           <a href={downloadUrl} className="hero__cta">
             Download for macOS
           </a>
-          <span className="hero__req">Requires macOS 14+ &middot; Free &amp; Open Source</span>
+          <span className="hero__req">
+            {version && <>v{version} &middot; </>}Requires macOS 14+ &middot; Free &amp; Open Source
+          </span>
         </div>
       </div>
 

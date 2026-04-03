@@ -16,18 +16,18 @@ SHELL := /bin/bash
 ROOT  := $(shell pwd)
 TAURI := $(ROOT)/src-tauri
 
-# Load credentials from .env.apple (non-secret identifiers)
+# Load credentials from .env.apple (signing identity, Apple ID, password)
 -include $(ROOT)/.env.apple
 
-# Load secrets from emit's .env.github-secrets (APPLE_PASSWORD etc.)
-# Falls back gracefully if file not found
-SECRETS_FILE := $(HOME)/Development/Apps/emit/.env.github-secrets
--include $(SECRETS_FILE)
+# Export signing identity for codesign (but NOT APPLE_PASSWORD —
+# we don't want Tauri to auto-notarize before post-build signing)
+export APPLE_SIGNING_IDENTITY
 
 IDENTITY      := $(APPLE_SIGNING_IDENTITY)
 APPLE_ID      ?= InfamousVagueRat@gmail.com
-TEAM_ID       := F6ZAL7ANAD
-VERSION       := $(shell node -e "console.log(require('./src-tauri/tauri.conf.json').version)")
+TEAM_ID       := $(APPLE_TEAM_ID)
+TEAM_ID       ?= F6ZAL7ANAD
+VERSION       := $(shell grep '"version"' src-tauri/tauri.conf.json | head -1 | sed 's/.*"\([0-9.]*\)".*/\1/')
 APP_BUNDLE    := $(TAURI)/target/release/bundle/macos/Blip.app
 DMG           := $(TAURI)/target/release/bundle/dmg/Blip_$(VERSION)_aarch64.dmg
 INSTALL_PATH  := /Applications/Blip.app
@@ -102,13 +102,7 @@ release:
 	fi; \
 	NEW="$$MAJOR.$$MINOR.$$PATCH"; \
 	echo "=== Bumping $$CURRENT → $$NEW ==="; \
-	node -e " \
-		const fs = require('fs'); \
-		const f = 'src-tauri/tauri.conf.json'; \
-		const c = JSON.parse(fs.readFileSync(f, 'utf8')); \
-		c.version = '$$NEW'; \
-		fs.writeFileSync(f, JSON.stringify(c, null, 2) + '\n'); \
-	"; \
+	sed -i '' "s/\"version\": \"$$CURRENT\"/\"version\": \"$$NEW\"/" src-tauri/tauri.conf.json; \
 	sed -i '' "s/^version = \"$$CURRENT\"/version = \"$$NEW\"/" src-tauri/Cargo.toml; \
 	git add src-tauri/tauri.conf.json src-tauri/Cargo.toml; \
 	git commit -m "Blip v$$NEW"; \
@@ -133,18 +127,12 @@ local-release:
 	fi; \
 	NEW="$$MAJOR.$$MINOR.$$PATCH"; \
 	echo "=== Bumping $$CURRENT → $$NEW ==="; \
-	node -e " \
-		const fs = require('fs'); \
-		const f = 'src-tauri/tauri.conf.json'; \
-		const c = JSON.parse(fs.readFileSync(f, 'utf8')); \
-		c.version = '$$NEW'; \
-		fs.writeFileSync(f, JSON.stringify(c, null, 2) + '\n'); \
-	"; \
+	sed -i '' "s/\"version\": \"$$CURRENT\"/\"version\": \"$$NEW\"/" src-tauri/tauri.conf.json; \
 	sed -i '' "s/^version = \"$$CURRENT\"/version = \"$$NEW\"/" src-tauri/Cargo.toml; \
 	git add src-tauri/tauri.conf.json src-tauri/Cargo.toml; \
 	git commit -m "Blip v$$NEW"
 	$(MAKE) all
-	@NEW=$$(node -e "console.log(require('./src-tauri/tauri.conf.json').version)"); \
+	@NEW=$$(grep '"version"' src-tauri/tauri.conf.json | head -1 | sed 's/.*"\([0-9.]*\)".*/\1/'); \
 	DMG="$(TAURI)/target/release/bundle/dmg/Blip_$${NEW}_aarch64.dmg"; \
 	git tag -a "v$$NEW" -m "Blip v$$NEW"; \
 	git push origin main; \

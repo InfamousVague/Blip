@@ -1,7 +1,7 @@
 import { NavBar } from "./components/NavBar";
 import { HeroSection } from "./components/HeroSection";
+import { FeatureShowcase } from "./components/FeatureShowcase";
 import { FeatureGrid } from "./components/FeatureGrid";
-import { AppPreview } from "./components/AppPreview";
 import { Footer } from "./components/Footer";
 
 export function WebsiteApp() {
@@ -10,8 +10,8 @@ export function WebsiteApp() {
       <NavBar />
       <main>
         <HeroSection />
+        <FeatureShowcase />
         <FeatureGrid />
-        <AppPreview />
         <Footer />
       </main>
     </>
