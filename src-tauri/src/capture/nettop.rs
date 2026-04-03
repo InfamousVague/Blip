@@ -186,10 +186,17 @@ pub async fn start_capture(
                     state.total_ever + 1
                 );
                 // Check forward DNS mapping (from passive DNS capture) before falling back to reverse DNS
-                let forward_domain = dns_mapping
+                let mut forward_domain = dns_mapping
                     .try_read()
                     .ok()
                     .and_then(|m| m.domain_for_ip_str(&key.dest_ip).map(String::from));
+
+                // Fallback: reverse DNS if forward mapping didn't have it
+                if forward_domain.is_none() {
+                    if let Ok(addr) = key.dest_ip.parse::<std::net::IpAddr>() {
+                        forward_domain = dns_lookup::lookup_addr(&addr).ok();
+                    }
+                }
 
                 let is_tracker_from_dns = forward_domain
                     .as_ref()

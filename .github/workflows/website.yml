@@ -7,7 +7,7 @@ on:
       - "website/**"
       - "src/ui/**"
       - "src/utils/arc-geometry.ts"
-      - "src/map-themes.ts"
+      - "src/map/map-themes.ts"
   workflow_dispatch:
 
 permissions:

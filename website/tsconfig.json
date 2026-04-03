@@ -7,11 +7,10 @@
     "module": "ESNext",
     "types": ["vite/client"],
     "skipLibCheck": true,
-    "baseUrl": ".",
     "paths": {
       "@blip/ui/*": ["../src/ui/*"],
       "@blip/utils/*": ["../src/utils/*"],
-      "@blip/map-themes": ["../src/map-themes.ts"]
+      "@blip/map-themes": ["../src/map/map-themes.ts"]
     },
     "resolveJsonModule": true,
     "moduleResolution": "bundler",
@@ -26,5 +25,5 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src", "../src/ui", "../src/utils", "../src/map-themes.ts"]
+  "include": ["src", "../src/ui", "../src/utils", "../src/map/map-themes.ts"]
 }

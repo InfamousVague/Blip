@@ -80,3 +80,52 @@ export function calculateBearing(
 export function easeOutCubic(t: number): number {
   return 1 - (1 - t) ** 3;
 }
+
+/**
+ * Extract a sub-path between t0 and t1 (0-1) from a pre-computed path array.
+ * Returns 3-5 interpolated points along the segment.
+ */
+export function extractSubPath(
+  path: [number, number, number][],
+  t0: number,
+  t1: number,
+  numPoints = 4,
+): [number, number, number][] {
+  if (path.length < 2) return [];
+
+  // Compute cumulative segment lengths
+  let totalLen = 0;
+  const segLens: number[] = [];
+  for (let i = 1; i < path.length; i++) {
+    const dx = path[i][0] - path[i - 1][0];
+    const dy = path[i][1] - path[i - 1][1];
+    segLens.push(Math.sqrt(dx * dx + dy * dy));
+    totalLen += segLens[segLens.length - 1];
+  }
+  if (totalLen === 0) return [path[0]];
+
+  const result: [number, number, number][] = [];
+  for (let i = 0; i < numPoints; i++) {
+    const t = t0 + (t1 - t0) * (i / (numPoints - 1));
+    const targetDist = t * totalLen;
+    let accum = 0;
+    let found = false;
+    for (let j = 0; j < segLens.length; j++) {
+      if (accum + segLens[j] >= targetDist) {
+        const frac = segLens[j] > 0 ? (targetDist - accum) / segLens[j] : 0;
+        const a = path[j];
+        const b = path[j + 1];
+        result.push([
+          a[0] + (b[0] - a[0]) * frac,
+          a[1] + (b[1] - a[1]) * frac,
+          a[2] + (b[2] - a[2]) * frac,
+        ]);
+        found = true;
+        break;
+      }
+      accum += segLens[j];
+    }
+    if (!found) result.push(path[path.length - 1]);
+  }
+  return result;
+}

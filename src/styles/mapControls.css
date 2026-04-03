@@ -1,0 +1,109 @@
+/* Upper controls — navigation, horizontally centered under radar */
+.map-controls-upper {
+  position: absolute;
+  top: 237px;
+  left: 36px;
+  display: flex;
+  flex-direction: row;
+  gap: 4px;
+  z-index: 4;
+  padding: 6px;
+  border-radius: 9999px;
+  background: rgba(0, 0, 0, 0.004);
+  backdrop-filter: blur(20px) saturate(1.8);
+  -webkit-backdrop-filter: blur(20px) saturate(1.8);
+  border: 1px solid rgba(227, 227, 227, 0.06);
+}
+
+.map-controls-upper .blip-btn {
+  width: 32px !important;
+  height: 32px !important;
+  min-width: 32px !important;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--blip-text-secondary);
+}
+
+.map-controls-upper .blip-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.map-controls-upper .blip-btn--primary {
+  background: var(--blip-purple-muted);
+  color: var(--blip-purple-text);
+}
+
+/* Lower controls — visualization toggles */
+.zoom-controls {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  z-index: 4;
+  padding: 6px;
+  border-radius: 9999px;
+
+  /* Match topbar glass: blur + thin border + near-transparent */
+  background: rgba(0, 0, 0, 0.004);
+  backdrop-filter: blur(20px) saturate(1.8);
+  -webkit-backdrop-filter: blur(20px) saturate(1.8);
+  border: 1px solid rgba(227, 227, 227, 0.06);
+}
+
+.zoom-controls .blip-btn {
+  border-radius: 50%;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  /* Subtle frosted button inside the glass pill */
+  background: rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid rgba(227, 227, 227, 0.04) !important;
+}
+
+.zoom-controls .blip-btn:hover {
+  background: rgba(255, 255, 255, 0.12) !important;
+}
+
+.zoom-controls .blip-btn--primary {
+  background: var(--blip-purple-muted) !important;
+}
+
+.zoom-controls .blip-btn--primary:hover {
+  background: var(--blip-purple-solid) !important;
+}
+
+.map-btn-tooltip {
+  position: relative;
+}
+
+.map-btn-tooltip::before {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: calc(100% + 8px);
+  top: 50%;
+  transform: translateY(-50%);
+  background: var(--blip-bg-elevated);
+  backdrop-filter: blur(20px) saturate(1.8);
+  -webkit-backdrop-filter: blur(20px) saturate(1.8);
+  border: 1px solid var(--blip-border-default);
+  border-radius: 6px;
+  padding: var(--sp-1) var(--sp-2);
+  font-size: var(--text-xs-size);
+  font-family: var(--font-sans);
+  color: var(--blip-text-primary);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.map-btn-tooltip:hover::before {
+  opacity: 1;
+}

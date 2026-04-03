@@ -93,6 +93,9 @@ swiftc \
     -parse-as-library \
     -module-name BlipNetworkExtension \
     -o "$NE_BUILD_DIR/com.infamousvague.blip.network-extension" \
+    "$NE_DIR/Sources/NEEventTypes.swift" \
+    "$NE_DIR/Sources/FlowByteTracker.swift" \
+    "$NE_DIR/Sources/DNSHelpers.swift" \
     "$NE_DIR/Sources/RuleEngine.swift" \
     "$NE_DIR/Sources/BlipFilterProvider.swift" \
     "$NE_DIR/Sources/BlipDNSProvider.swift" \

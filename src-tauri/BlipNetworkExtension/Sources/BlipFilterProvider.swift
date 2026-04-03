@@ -49,16 +49,7 @@ class BlipFilterProvider: NEFilterDataProvider {
     private var flowReportTimer: DispatchSourceTimer?
 
     /// Pending approval requests (flow allowed temporarily, waiting for user decision)
-    private var pendingApprovals: [String: UInt64] = [:] // requestId → timestamp
-
-    struct FlowByteTracker {
-        var bytesIn: UInt64 = 0
-        var bytesOut: UInt64 = 0
-        var sourceAppId: String = "unknown"
-        var destIp: String
-        var destPort: Int
-        var lastReported: UInt64 = 0
-    }
+    private var pendingApprovals: [String: UInt64] = [:] // requestId -> timestamp
 
     // MARK: - Filter Lifecycle
 

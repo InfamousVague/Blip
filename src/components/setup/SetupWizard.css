@@ -1,0 +1,216 @@
+.setup-wizard-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+}
+
+.setup-wizard {
+  width: 500px;
+  max-width: 90vw;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+/* Progress bar */
+.setup-wizard__progress-bar {
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.setup-wizard__progress-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--blip-accent);
+  transition: width 0.3s ease;
+}
+
+/* Steps */
+.setup-wizard__step {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  align-items: center;
+  text-align: center;
+}
+
+.setup-wizard__logo {
+  opacity: 0.8;
+}
+
+.setup-wizard__title {
+  font-family: var(--font-sans);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--blip-text-primary);
+  margin: 0;
+}
+
+.setup-wizard__title--sm {
+  font-size: 18px;
+}
+
+.setup-wizard__desc {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  color: var(--blip-text-secondary);
+  line-height: 1.5;
+  margin: 0;
+  max-width: 400px;
+}
+
+.setup-wizard__q-count {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--blip-text-tertiary);
+}
+
+/* Profile cards */
+.setup-wizard__modes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.setup-wizard__mode-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s ease;
+}
+
+.setup-wizard__mode-card:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.setup-wizard__mode-card--selected {
+  border-color: var(--blip-accent);
+  background: rgba(147, 130, 255, 0.08);
+}
+
+.setup-wizard__mode-card--disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.setup-wizard__mode-card--disabled:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.setup-wizard__mode-label {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--blip-text-primary);
+}
+
+.setup-wizard__mode-desc {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--blip-text-secondary);
+  line-height: 1.4;
+}
+
+.setup-wizard__mode-badge {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--blip-accent);
+  background: rgba(147, 130, 255, 0.15);
+  padding: 2px 8px;
+  border-radius: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.setup-wizard__mode-badge--muted {
+  color: var(--blip-text-tertiary);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* Question options — clickable answer buttons */
+.setup-wizard__options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.setup-wizard__option {
+  padding: 12px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--blip-text-secondary);
+  transition: all 0.15s ease;
+}
+
+.setup-wizard__option:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--blip-text-primary);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.setup-wizard__option--selected {
+  border-color: var(--blip-accent);
+  background: rgba(147, 130, 255, 0.1);
+  color: var(--blip-text-primary);
+}
+
+/* Navigation */
+.setup-wizard__nav {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  justify-content: center;
+}
+
+/* Summary */
+.setup-wizard__summary {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  padding: 12px 16px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.setup-wizard__summary-row {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--blip-text-secondary);
+}
+
+.setup-wizard__summary-row strong {
+  color: var(--blip-text-primary);
+  font-weight: 600;
+  text-transform: capitalize;
+}

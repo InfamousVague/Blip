@@ -6,8 +6,8 @@
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
-    "beforeDevCommand": "bash src-tauri/scripts/build-ne.sh; bash src-tauri/scripts/dev-app-wrapper.sh; npm run dev",
-    "beforeBuildCommand": "npm run build && bash src-tauri/scripts/build-ne.sh"
+    "beforeDevCommand": "bash tauri/scripts/build-ne.sh; bash tauri/scripts/dev-app-wrapper.sh; npm run dev",
+    "beforeBuildCommand": "npm run build && bash tauri/scripts/build-ne.sh"
   },
   "app": {
     "windows": [

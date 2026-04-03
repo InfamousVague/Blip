@@ -1,0 +1,106 @@
+/* Hop waypoint marker — small downward-pointing pin with rabbit SVG */
+.hop-marker {
+  position: relative;
+  width: 28px;
+  height: 48px;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  animation: hop-float 3.5s ease-in-out infinite;
+}
+
+@keyframes hop-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+.hop-marker__rabbit {
+  width: 20px;
+  height: 20px;
+  margin-bottom: 2px;
+  filter: drop-shadow(0 0 3px rgba(167, 139, 250, 0.4));
+  animation: hop-rabbit-glow 2.5s ease-in-out infinite;
+}
+
+.hop-marker__pin {
+  width: 18px;
+  height: 24px;
+  filter: drop-shadow(0 0 8px rgba(139, 92, 246, 0.6))
+          drop-shadow(0 0 16px rgba(167, 139, 250, 0.3));
+}
+
+/* User location ground dot */
+.user-ground-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.5), 0 0 20px rgba(139, 92, 246, 0.3);
+  pointer-events: none;
+}
+
+@keyframes hop-rabbit-glow {
+  0%, 100% { filter: drop-shadow(0 0 2px rgba(167, 139, 250, 0.3)); }
+  50% { filter: drop-shadow(0 0 5px rgba(167, 139, 250, 0.5)); }
+}
+
+/* Blocked DNS flash — red X polygon that floats up and fades */
+.blocked-flash {
+  position: relative;
+  width: 20px;
+  height: 36px;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transition: none;
+}
+
+.blocked-flash__pin {
+  width: 16px;
+  height: 22px;
+  filter: drop-shadow(0 0 6px rgba(255, 50, 50, 0.6));
+}
+
+.blocked-flash__x {
+  position: absolute;
+  top: 0;
+  font-size: 10px;
+  font-weight: bold;
+  color: #ff4444;
+  text-shadow: 0 0 4px rgba(255, 50, 50, 0.8);
+  line-height: 1;
+}
+
+/* Floating waypoint gem marker */
+.waypoint-marker {
+  position: relative;
+  width: 40px;
+  height: 72px;
+  pointer-events: none;
+  animation: waypoint-float 4s ease-in-out infinite;
+}
+
+.waypoint-marker__gem {
+  width: 40px;
+  height: 56px;
+  filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.5))
+          drop-shadow(0 0 20px rgba(200, 200, 255, 0.3));
+  animation: waypoint-glow 3s ease-in-out infinite;
+}
+
+/* Ground ring removed — clean floating gem */
+.waypoint-marker__ring {
+  display: none;
+}
+
+@keyframes waypoint-float {
+  0%, 100% { transform: translateY(-50px); }
+  50% { transform: translateY(-62px); }
+}
+
+@keyframes waypoint-glow {
+  0%, 100% { filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.4)) drop-shadow(0 0 16px rgba(200, 200, 255, 0.2)); }
+  50% { filter: drop-shadow(0 0 12px rgba(255, 255, 255, 0.7)) drop-shadow(0 0 28px rgba(200, 200, 255, 0.4)); }
+}

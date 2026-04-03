@@ -15,7 +15,7 @@ interface SpeedTestProgress {
   percent: number;
 }
 
-const TEST_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
+const TEST_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const INITIAL_DELAY_MS = 5_000; // 5 seconds after mount
 
 export function useSpeedTest() {

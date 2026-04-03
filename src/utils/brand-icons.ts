@@ -1,11 +1,12 @@
 /**
- * Brand icon resolver — Static Simple Icons SVGs → glassmorphism fallback
+ * Brand icon resolver — Static Simple Icons SVGs -> glassmorphism fallback
  *
  * Uses pre-generated SVG data URLs from simple-icons package.
  * No async loading, no dynamic imports — everything is static and instant.
  */
 
 import { BRAND_SVGS } from "./brand-svgs";
+import { DOMAIN_TO_BRAND } from "./domainBrandMap";
 
 /**
  * Check if a hex color is too dark to be visible on a dark background.
@@ -37,100 +38,6 @@ function ensureVisibleFill(dataUrl: string): string {
   }
   return dataUrl;
 }
-
-// Domain keyword → brand key mapping
-const DOMAIN_TO_BRAND: Record<string, string> = {
-  // Big tech
-  "google": "google",
-  "googleapis": "google",
-  "googlevideo": "youtube",
-  "youtube": "youtube",
-  "ytimg": "youtube",
-  "ggpht": "youtube",
-  "gstatic": "google",
-  "googleusercontent": "google",
-  "apple": "apple",
-  "icloud": "apple",
-  "mzstatic": "apple",
-  "aaplimg": "apple",
-  "microsoft": "microsoft",
-  "windows": "microsoft",
-  "live": "microsoft",
-  "outlook": "microsoft",
-  "office": "microsoft",
-
-  // Social / messaging
-  "facebook": "facebook",
-  "fbcdn": "facebook",
-  "instagram": "instagram",
-  "whatsapp": "whatsapp",
-  "twitter": "x",
-  "twimg": "x",
-  "x": "x",
-  "tiktok": "tiktok",
-  "snapchat": "snapchat",
-  "reddit": "reddit",
-  "redd": "reddit",
-  "linkedin": "linkedin",
-  "pinterest": "pinterest",
-  "discord": "discord",
-  "discordapp": "discord",
-  "telegram": "telegram",
-  "signal": "signal",
-
-  // Streaming
-  "netflix": "netflix",
-  "nflxvideo": "netflix",
-  "spotify": "spotify",
-  "scdn": "spotify",
-  "twitch": "twitch",
-  "ttvnw": "twitch",
-
-  // Cloud / dev
-  "amazon": "amazon",
-  "amazonaws": "amazon",
-  "aws": "amazon",
-  "cloudfront": "amazon",
-  "github": "github",
-  "gitlab": "gitlab",
-  "cloudflare": "cloudflare",
-  "docker": "docker",
-
-  // AI
-  "anthropic": "anthropic",
-  "openai": "openai",
-  "claude": "anthropic",
-
-  // Shopping
-  "ebay": "ebay",
-  "paypal": "paypal",
-  "stripe": "stripe",
-
-  // Other
-  "zoom": "zoom",
-  "dropbox": "dropbox",
-  "notion": "notion",
-  "figma": "figma",
-  "wordpress": "wordpress",
-  "medium": "medium",
-  "wikipedia": "wikipedia",
-  "firefox": "firefox",
-  "brave": "brave",
-  "samsung": "samsung",
-  "sony": "sony",
-  "nvidia": "nvidia",
-  "intel": "intel",
-  "amd": "amd",
-  "steam": "steam",
-  "adobe": "adobe",
-  "datadog": "datadog",
-  "grafana": "grafana",
-  "sentry": "sentry",
-  "mongodb": "mongodb",
-  "postgresql": "postgresql",
-  "mysql": "mysql",
-  "redis": "redis",
-};
 
 /**
  * Extract a brand keyword from a domain name.
@@ -206,7 +113,7 @@ export function getRawBrandColor(
 }
 
 /**
- * Returns perceived luminance 0–1 for a hex color.
+ * Returns perceived luminance 0-1 for a hex color.
  * Use to decide if text on this background should be light or dark.
  */
 export function getLuminance(hex: string): number {

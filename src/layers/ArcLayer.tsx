@@ -4,7 +4,7 @@ import { MapboxOverlay } from "@deck.gl/mapbox";
 import { PathLayer, ScatterplotLayer, TextLayer } from "@deck.gl/layers";
 import { PathStyleExtension } from "@deck.gl/extensions";
 import { HeatmapLayer as DeckHeatmapLayer } from "@deck.gl/aggregation-layers";
-import type { ArcData, ParticleData, BlockedMarkerData, EndpointData, HopMarkerData } from "../hooks/useArcAnimation";
+import type { ArcData, ParticleData, BlockedMarkerData, EndpointData, HopMarkerData, DashSegment } from "../hooks/useArcAnimation";
 
 export interface HeatmapPoint {
   position: [number, number]; // [lon, lat]
@@ -21,6 +21,7 @@ interface Props {
   endpoints?: EndpointData[];
   hopMarkers?: HopMarkerData[];
   showHops?: boolean;
+  dashSegments?: DashSegment[];
 }
 
 function DeckGLOverlay({ layers }: { layers: any[] }) {
@@ -34,7 +35,7 @@ function hexToRgb(hex: string): [number, number, number] {
   return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
 }
 
-export function NetworkArcLayer({ arcs, particles = [], blockedMarkers = [], showParticles = false, heatmapData = [], showHeatmap = false, endpoints = [], hopMarkers = [], showHops = false }: Props) {
+export function NetworkArcLayer({ arcs, particles = [], blockedMarkers = [], showParticles = false, heatmapData = [], showHeatmap = false, endpoints = [], hopMarkers = [], showHops = false, dashSegments = [] }: Props) {
   const frameCounter = useRef(0);
   frameCounter.current += 1;
 
@@ -146,6 +147,50 @@ export function NetworkArcLayer({ arcs, particles = [], blockedMarkers = [], sho
       });
       layers.push(glowLayer);
     }
+  }
+
+  // Marching dash segments — service-colored short paths flowing along arcs
+  if (dashSegments.length > 0) {
+    // Trail layer (dimmer, slightly wider — luminous fade effect)
+    const trails = dashSegments.filter((d) => d.trailPath.length >= 2);
+    if (trails.length > 0) {
+      layers.push(new PathLayer<DashSegment>({
+        id: "dash-trails",
+        data: trails,
+        getPath: (d) => d.trailPath,
+        getColor: (d) => d.trailColor,
+        getWidth: (d) => d.width + 2,
+        widthUnits: "pixels" as const,
+        widthMinPixels: 2,
+        widthMaxPixels: 6,
+        capRounded: true,
+        jointRounded: true,
+        parameters: { depthTest: false } as any,
+        updateTriggers: {
+          getPath: [frameCounter.current],
+          getColor: [frameCounter.current],
+        },
+      }));
+    }
+
+    // Dash layer (bright, crisp)
+    layers.push(new PathLayer<DashSegment>({
+      id: "dash-segments",
+      data: dashSegments,
+      getPath: (d) => d.path,
+      getColor: (d) => d.color,
+      getWidth: (d) => d.width,
+      widthUnits: "pixels" as const,
+      widthMinPixels: 1.5,
+      widthMaxPixels: 4,
+      capRounded: true,
+      jointRounded: true,
+      parameters: { depthTest: false } as any,
+      updateTriggers: {
+        getPath: [frameCounter.current],
+        getColor: [frameCounter.current],
+      },
+    }));
   }
 
   // Red X markers at midpoints of blocked/flashing arcs

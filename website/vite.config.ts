@@ -13,7 +13,7 @@ export default defineConfig({
       "react-dom": path.resolve(__dirname, "../node_modules/react-dom"),
       "@blip/ui": path.resolve(__dirname, "../src/ui"),
       "@blip/utils": path.resolve(__dirname, "../src/utils"),
-      "@blip/map-themes": path.resolve(__dirname, "../src/map-themes.ts"),
+      "@blip/map-themes": path.resolve(__dirname, "../src/map/map-themes.ts"),
     },
   },
   build: {

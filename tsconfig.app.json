@@ -7,9 +7,11 @@
     "module": "ESNext",
     "types": ["vite/client"],
     "skipLibCheck": true,
-    "baseUrl": ".",
     "paths": {
-      "@mattmattmattmatt/base/*": ["../../Libs/base/*"]
+      "@mattmattmattmatt/base/*": ["../../Libs/base/*"],
+      "@blip/ui/*": ["./src/ui/*"],
+      "@blip/utils/*": ["./src/utils/*"],
+      "@blip/map-themes": ["./src/map/map-themes.ts"]
     },
 
     "resolveJsonModule": true,

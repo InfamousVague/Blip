@@ -1,0 +1,137 @@
+.endpoint-icon {
+  object-fit: contain;
+  filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.1));
+  cursor: pointer;
+  transition: filter 0.15s ease, transform 0.15s ease;
+}
+
+.endpoint-icon--selected {
+  transform: scale(1.15);
+}
+
+.endpoint-icon:hover {
+  filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.3));
+}
+
+/* Glass container + brand icon compositing */
+.endpoint-glass {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  will-change: transform;
+  transition: transform 0.15s ease;
+}
+
+.endpoint-glass:hover {
+  transform: scale(1.08);
+}
+
+.endpoint-glass.endpoint-icon--selected {
+  transform: scale(1.15);
+}
+
+.endpoint-glass__container {
+  display: block;
+  object-fit: contain;
+}
+
+/* Brand glow — blurred duplicate behind the icon */
+.endpoint-glass__glow {
+  position: absolute;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+/* Brand icon — sits on top of the glass */
+.endpoint-glass__brand {
+  position: absolute;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.endpoint-label {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-top: var(--sp-1);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.endpoint-tooltip {
+  position: fixed;
+  pointer-events: none;
+  z-index: 100;
+  /* Match sidebar glass */
+  background: rgba(0, 0, 0, 0.004);
+  backdrop-filter: blur(20px) saturate(1.8);
+  -webkit-backdrop-filter: blur(20px) saturate(1.8);
+  border: 1px solid rgba(227, 227, 227, 0.06);
+  border-radius: 14px;
+  padding: var(--sp-3) var(--sp-4);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm-size);
+  color: var(--blip-text-primary);
+  white-space: nowrap;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+}
+
+.endpoint-tooltip__domain {
+  font-weight: var(--weight-medium);
+}
+
+.endpoint-tooltip__location {
+  color: var(--blip-text-tertiary);
+  font-size: var(--text-xs-size);
+}
+
+.endpoint-tooltip__stats {
+  color: var(--blip-text-secondary);
+  font-size: var(--text-xs-size);
+  margin-top: 2px;
+}
+
+.endpoint-tooltip__connections {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding-top: 4px;
+}
+
+.endpoint-tooltip__conn-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-xs-size);
+}
+
+.endpoint-tooltip__service {
+  color: var(--blip-text-primary);
+  background: rgba(255, 255, 255, 0.1);
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-weight: var(--weight-medium);
+  flex-shrink: 0;
+}
+
+.endpoint-tooltip__process {
+  color: var(--blip-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.endpoint-tooltip__port {
+  color: var(--blip-text-tertiary);
+  flex-shrink: 0;
+}
+
+.endpoint-tooltip__more {
+  font-size: var(--text-xs-size);
+  color: var(--blip-text-tertiary);
+  padding-top: 2px;
+}

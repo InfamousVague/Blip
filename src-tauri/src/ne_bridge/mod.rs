@@ -1,4 +1,5 @@
 pub mod types;
+mod handlers;
 
 use crate::blocklist::BlocklistStore;
 use crate::capture::nettop::ConnectionStore;
@@ -487,11 +488,18 @@ async fn process_ne_connection(
     // GeoIP lookup
     let geo = geoip.lookup(&event.dest_ip);
 
-    // Forward DNS lookup from passive capture
-    let domain = dns_mapping
+    // Forward DNS lookup from passive capture, with reverse DNS fallback
+    let mut domain = dns_mapping
         .try_read()
         .ok()
         .and_then(|m| m.domain_for_ip_str(&event.dest_ip).map(String::from));
+
+    // Fallback: reverse DNS if forward mapping didn't have it
+    if domain.is_none() {
+        if let Ok(addr) = event.dest_ip.parse::<std::net::IpAddr>() {
+            domain = dns_lookup::lookup_addr(&addr).ok();
+        }
+    }
 
     let is_tracker = domain
         .as_ref()

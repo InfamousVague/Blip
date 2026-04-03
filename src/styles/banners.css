@@ -1,0 +1,22 @@
+.elevation-banner {
+  position: absolute;
+  top: 64px; /* below 52px topbar + 12px gap */
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 15;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-4);
+  background: var(--glass-frosted-fill);
+  backdrop-filter: blur(var(--glass-frosted-blur)) saturate(var(--glass-frosted-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-frosted-blur)) saturate(var(--glass-frosted-saturate));
+  border: 1px solid var(--glass-frosted-border);
+  border-radius: 10px;
+  box-shadow: inset 6px 6px 3px -6px rgba(179, 179, 179, 0.5),
+              inset -6px -6px 3px -6px rgba(179, 179, 179, 0.5);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm-size);
+  color: var(--blip-text-secondary);
+  white-space: nowrap;
+}

@@ -1,0 +1,23 @@
+/* Auto-scroll text that overflows */
+.text-scroll {
+  overflow: hidden;
+  white-space: nowrap;
+  position: relative;
+}
+
+.text-scroll__inner {
+  display: inline-block;
+  white-space: nowrap;
+  animation: none;
+}
+
+.text-scroll--active .text-scroll__inner {
+  animation: text-scroll 8s linear infinite;
+  padding-right: var(--sp-6);
+}
+
+@keyframes text-scroll {
+  0%, 15% { transform: translateX(0); }
+  50%, 65% { transform: translateX(calc(-100% + var(--scroll-container-width, 200px))); }
+  100% { transform: translateX(0); }
+}

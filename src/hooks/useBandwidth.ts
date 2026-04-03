@@ -9,7 +9,7 @@ export interface BandwidthSample {
 
 const MAX_SAMPLES = 60; // 60 seconds of history
 
-export function useBandwidth(capturing: boolean) {
+export function useBandwidth(capturing: boolean, suppressAlerts = false) {
   const [samples, setSamples] = useState<BandwidthSample[]>([]);
   const [totalIn, setTotalIn] = useState(0);
   const [totalOut, setTotalOut] = useState(0);
@@ -63,6 +63,7 @@ export function useBandwidth(capturing: boolean) {
   const exceededCount = useRef(0); // consecutive seconds above threshold
   useEffect(() => {
     if (samples.length === 0) return;
+    if (suppressAlerts) { exceededCount.current = 0; return; } // skip alerts during speed tests
     const latest = samples[samples.length - 1];
     const now = Date.now();
     if (now < alertCooldown.current) { exceededCount.current = 0; return; }

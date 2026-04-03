@@ -1,176 +1,27 @@
 import { useRef, useEffect, useState, useMemo } from "react";
 import type { ResolvedConnection, BlockedAttempt } from "../types/connection";
-import { greatCircleDistance, arcHeight, pointOnArc, interpolateArc } from "../utils/arc-geometry";
-import { classifyEndpoint, type EndpointType } from "../utils/endpoint-type";
-import { getServiceColor, hexToRgba } from "../utils/service-colors";
+import { greatCircleDistance, arcHeight, pointOnArc, interpolateArc, extractSubPath } from "../utils/arc-geometry";
+import { classifyEndpoint } from "../utils/endpoint-type";
+import { getServiceColor } from "../utils/service-colors";
 import type { TracedRoute } from "../types/connection";
 import { getCachedRoute, buildRoutedPath, pointAlongPath, type CableRoute } from "../utils/cable-routing";
+import { buildTracedPath } from "../utils/tracedPathBuilder";
+import type {
+  ArcData,
+  EndpointData,
+  BlockedMarkerData,
+  BlockedFlashData,
+  ParticleData,
+  HopMarkerData,
+  DashSegment,
+} from "../types/arcAnimation";
+import { hexToRgba } from "../utils/service-colors";
+
+export type { ArcData, EndpointData, BlockedMarkerData, BlockedFlashData, ParticleData, HopMarkerData, DashSegment };
 
 const FADE_DURATION_MS = 15_000;
 const BLOCK_FLASH_MS = 2_000;
 const BLOCKED_ARC_FADE_MS = 120_000; // blocked arcs stay visible for 2 minutes then fade
-/** Minimum distance (km) between consecutive waypoints to be considered a distinct hop.
- *  Filters out hops that geolocate to the same generic location (e.g. "United States" center). */
-const MIN_HOP_DISTANCE_KM = 150; // Minimum distance between hops to be a distinct waypoint
-
-// Known country centroid coordinates that GeoLite2 returns for ambiguous IPs.
-// Hops at these locations are filtered out as they're not real geographic locations.
-const CENTROID_BLACKLIST: [number, number][] = [
-  [-97.82, 37.75],   // United States center (Kansas)
-  [-2.0, 54.0],      // United Kingdom center
-  [2.0, 47.0],       // France center
-  [10.0, 51.0],      // Germany center
-  [12.5, 42.5],      // Italy center
-  [138.0, 36.0],     // Japan center
-  [134.0, -25.0],    // Australia center
-  [-106.0, 56.0],    // Canada center
-  [105.0, 35.0],     // China center
-  [78.0, 22.0],      // India center
-];
-const CENTROID_RADIUS_KM = 200; // How close to a centroid to be considered ambiguous
-
-/** Build a 3D path from traced route hops.
- *  Each hop-to-hop segment is a smooth arc.
- *  Ocean crossings (>4000km) use submarine cable routing when available. */
-function buildTracedPath(
-  source: [number, number],
-  target: [number, number],
-  traced: TracedRoute,
-): { path: [number, number, number][]; usesCable: boolean } {
-  // Collect candidate waypoints with valid coordinates
-  const candidates: [number, number][] = [];
-  for (const hop of traced.hops) {
-    if (hop.lat != null && hop.lon != null) {
-      candidates.push([hop.lon, hop.lat]);
-    }
-  }
-
-  // Minimal hop filtering — only remove centroids and exact duplicates.
-  // Every valid hop becomes a waypoint the arc passes through.
-  const waypoints: [number, number][] = [[source[0], source[1]]];
-
-  for (const pt of candidates) {
-    const prev = waypoints[waypoints.length - 1];
-    const distFromPrev = greatCircleDistance(prev[1], prev[0], pt[1], pt[0]);
-    // Skip exact duplicates (within 30km of previous waypoint)
-    if (distFromPrev < 30) continue;
-    // Skip known country centroids (GeoIP mislocations)
-    const isCentroid = CENTROID_BLACKLIST.some(
-      ([cLon, cLat]) => greatCircleDistance(cLat, cLon, pt[1], pt[0]) < CENTROID_RADIUS_KM
-    );
-    if (isCentroid) continue;
-
-    waypoints.push(pt);
-  }
-
-  // Always end the arc at the GeoIP target so it connects to the endpoint dot.
-  // If the last traced hop is far from the target, the final segment will be a
-  // low flat line (data already arrived, this is just GeoIP disagreement).
-  waypoints.push([target[0], target[1]]);
-
-  // Need at least one intermediate hop to be worth rendering as traced
-  if (waypoints.length <= 2) return { path: [], usesCable: false };
-
-  // Build path: arc per segment, cable routing for ocean crossings
-  const path: [number, number, number][] = [];
-  let usesCable = false;
-  for (let i = 0; i < waypoints.length - 1; i++) {
-    const from = waypoints[i];
-    const to = waypoints[i + 1];
-    const dist = greatCircleDistance(from[1], from[0], to[1], to[0]);
-
-    let segPoints: [number, number, number][];
-
-    // Final segment from last traced hop to GeoIP endpoint — keep it flat/low
-    // when there's a big discrepancy (GeoIP disagrees with traceroute)
-    if (dist > 2000) {
-      // Ocean crossing: try cable routing for transcontinental segments
-      const cableRoute = getCachedRoute(from, to) || (dist > 5000 ? getCachedRoute(from, to, true) : null);
-      if (cableRoute) {
-        segPoints = buildRoutedPath(from, to, cableRoute);
-        usesCable = true;
-      } else {
-        const numPoints = Math.max(20, Math.round(dist / 50));
-        const h = arcHeight(dist) * 0.15;
-        segPoints = interpolateArc(from, to, h, numPoints);
-      }
-    } else {
-      // Normal land arc
-      const numPoints = Math.max(20, Math.round(dist / 50));
-      const h = arcHeight(dist) * 0.4;
-      segPoints = interpolateArc(from, to, h, numPoints);
-    }
-
-    // Append, skip first point on subsequent segments to avoid duplicates
-    for (let j = i === 0 ? 0 : 1; j < segPoints.length; j++) {
-      path.push(segPoints[j]);
-    }
-  }
-
-  return { path, usesCable };
-}
-
-export interface ArcData {
-  id: string;
-  sourcePosition: [number, number];
-  targetPosition: [number, number];
-  sourceColor: [number, number, number, number];
-  targetColor: [number, number, number, number];
-  height: number;
-  width: number;
-  pingMs: number | null;
-  midpoint: [number, number, number];
-  /** Pre-computed 3D path points for PathLayer rendering */
-  path: [number, number, number][];
-  /** True if this arc uses a submarine cable route (render dashed) */
-  cableRouted?: boolean;
-}
-
-export interface BlockedMarkerData {
-  position: [number, number, number];
-  opacity: number;
-}
-
-export interface BlockedFlashData {
-  id: string;
-  timestamp: number;
-  domain: string;
-}
-
-
-export interface ParticleData {
-  position: [number, number, number];
-  color: [number, number, number, number];
-  width: number;
-  /** 0 = upload (user→endpoint), 1 = download (endpoint→user), 2 = neutral */
-  direction?: number;
-}
-
-export interface HopMarkerData {
-  position: [number, number, number];
-  color: [number, number, number, number];
-  radius: number;
-}
-
-export interface EndpointData {
-  id: string;
-  position: [number, number];
-  domain: string | null;
-  ip: string | null;
-  city: string | null;
-  country: string | null;
-  connectionCount: number;
-  type: EndpointType;
-  serviceName: string | null;
-  services: string[];
-  connectionDetails: { process: string; domain: string | null; port: number; service: string; color: string }[];
-  datacenter: string | null;
-  cloudProvider: string | null;
-  cloudRegion: string | null;
-  asnOrg: string | null;
-  networkType: string | null;
-  isCdn: boolean;
-}
 
 // Pre-computed arc info that doesn't change between frames
 interface ArcMeta {
@@ -205,6 +56,7 @@ export function useArcAnimation(
     activeCableIds: string[];
     hopMarkers: HopMarkerData[];
     blockedFlashes: BlockedFlashData[];
+    dashSegments: DashSegment[];
   }>({
     arcs: [],
     endpoints: [],
@@ -213,6 +65,7 @@ export function useArcAnimation(
     activeCableIds: [],
     hopMarkers: [],
     blockedFlashes: [],
+    dashSegments: [],
   });
   const rafId = useRef(0);
 
@@ -349,13 +202,14 @@ export function useArcAnimation(
 
       const loc = userLocation;
       if (!loc || arcMetas.length === 0) {
-        setOutput({ arcs: [], endpoints, particles: [], blockedMarkers: [], activeCableIds: [], hopMarkers: [], blockedFlashes: [] });
+        setOutput({ arcs: [], endpoints, particles: [], blockedMarkers: [], activeCableIds: [], hopMarkers: [], blockedFlashes: [], dashSegments: [] });
         return;
       }
 
       const arcs: ArcData[] = [];
       const particles: ParticleData[] = [];
       const blockedMarkers: BlockedMarkerData[] = [];
+      const dashSegments: DashSegment[] = [];
 
       // Detect new tracker connections → trigger flash
       for (const meta of arcMetas) {
@@ -474,7 +328,65 @@ export function useArcAnimation(
           cableRouted: meta.isCableRouted,
         });
 
-        // No particles — data flow is shown via the pulsing glow on the arc itself
+        // Marching dashes — short segments flowing along the arc
+        if (conn.active && conn.bytes_sent + conn.bytes_received > 0) {
+          const pingVal = conn.ping_ms ?? 100;
+          const cycleSec = Math.max(0.8, Math.min(5, pingVal / 50));
+          const phase = (conn.first_seen_ms * 0.001 + i * 0.37) % 1;
+          const svcRgba = hexToRgba(meta.svcColor, 0.9);
+          const DASH_LEN = 0.04; // 4% of path length per dash
+          const TRAIL_LEN = 0.025; // 2.5% trail behind each dash
+
+          // Upload dashes: flow outward (0 → 1), pink-tinted
+          if (conn.bytes_sent > 0) {
+            const r = Math.round(svcRgba[0] * 0.4 + 236 * 0.6);
+            const g = Math.round(svcRgba[1] * 0.4 + 72 * 0.6);
+            const b = Math.round(svcRgba[2] * 0.4 + 153 * 0.6);
+            for (let p = 0; p < 2; p++) {
+              const pPhase = (phase + p * 0.5) % 1;
+              const headT = (now * 0.001 / cycleSec + pPhase) % 1;
+              const tailT = Math.max(0, headT - DASH_LEN);
+              const trailT = Math.max(0, tailT - TRAIL_LEN);
+              const dashPath = extractSubPath(meta.path, tailT, headT, 4);
+              const trailPath = extractSubPath(meta.path, trailT, tailT, 3);
+              if (dashPath.length >= 2) {
+                dashSegments.push({
+                  id: `${conn.id}-up-${p}`,
+                  path: dashPath,
+                  color: [r, g, b, 200],
+                  trailColor: [r, g, b, 60],
+                  trailPath,
+                  width: 3,
+                });
+              }
+            }
+          }
+
+          // Download dashes: flow inward (1 → 0), indigo-tinted
+          if (conn.bytes_received > 0) {
+            const r = Math.round(svcRgba[0] * 0.4 + 99 * 0.6);
+            const g = Math.round(svcRgba[1] * 0.4 + 102 * 0.6);
+            const b = Math.round(svcRgba[2] * 0.4 + 241 * 0.6);
+            for (let p = 0; p < 2; p++) {
+              const pPhase = (phase + 0.25 + p * 0.5) % 1;
+              const headT = 1 - ((now * 0.001 / cycleSec + pPhase) % 1);
+              const tailT = Math.min(1, headT + DASH_LEN);
+              const trailT = Math.min(1, tailT + TRAIL_LEN);
+              const dashPath = extractSubPath(meta.path, headT, tailT, 4);
+              const trailPath = extractSubPath(meta.path, tailT, trailT, 3);
+              if (dashPath.length >= 2) {
+                dashSegments.push({
+                  id: `${conn.id}-dn-${p}`,
+                  path: dashPath,
+                  color: [r, g, b, 200],
+                  trailColor: [r, g, b, 60],
+                  trailPath,
+                  width: 3,
+                });
+              }
+            }
+          }
+        }
       }
 
       // Blocked DNS attempts — show only the red X marker at the destination, no arc
@@ -575,7 +487,7 @@ export function useArcAnimation(
 
       const blockedFlashes = [...blockedFlashList.current];
 
-      setOutput({ arcs, endpoints, particles, blockedMarkers, activeCableIds, hopMarkers, blockedFlashes });
+      setOutput({ arcs, endpoints, particles, blockedMarkers, activeCableIds, hopMarkers, blockedFlashes, dashSegments });
     };
 
     rafId.current = requestAnimationFrame(animate);
