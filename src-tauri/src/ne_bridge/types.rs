@@ -31,6 +31,8 @@ pub struct NEConnectionEvent {
     pub protocol: String,
     pub direction: String,
     pub timestamp_ms: u64,
+    pub process_path: Option<String>,
+    pub code_signed: Option<bool>,
 }
 
 /// Per-flow byte update from the NE — sent periodically for active flows.
@@ -63,6 +65,50 @@ pub struct NEDnsEvent {
     pub source_app_id: String,
     pub source_pid: i32,
     pub blocked: bool,
+    pub cname_chain: Option<Vec<String>>,
+    pub ttl: Option<u32>,
+    pub upstream_time_ms: Option<u64>,
+}
+
+/// Heartbeat from the Network Extension — sent every 10 seconds.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NEHeartbeat {
+    pub flow_count: u64,
+    pub blocked_count: u64,
+    pub uptime_ms: u64,
+    pub rule_count: u64,
+    pub dns_blocked_count: u64,
+    pub dns_cache_size: u64,
+    pub socket_connected: bool,
+    pub ne_version: String,
+    pub ne_build: String,
+    pub mode: String,
+}
+
+/// Structured error event from the Network Extension.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NEErrorEvent {
+    pub category: String,
+    pub message: String,
+    pub severity: String,
+    pub timestamp_ms: u64,
+}
+
+/// Live NE status exposed to the frontend via Tauri command.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct NELiveStatus {
+    pub connected: bool,
+    pub ne_version: String,
+    pub ne_build: String,
+    pub mode: String,
+    pub flow_count: u64,
+    pub blocked_count: u64,
+    pub uptime_ms: u64,
+    pub rule_count: u64,
+    pub dns_blocked_count: u64,
+    pub dns_cache_size: u64,
+    pub last_heartbeat_ms: u64,
+    pub errors: Vec<NEErrorEvent>,
 }
 
 /// Status of the Network Extension.

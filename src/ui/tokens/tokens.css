@@ -20,6 +20,7 @@
 
   /* === Purple Accent === */
   --blip-purple-solid: #8b5cf6;
+  --blip-purple-active: rgba(139, 92, 246, 0.55);
   --blip-purple-muted: rgba(139, 92, 246, 0.25);
   --blip-purple-subtle: rgba(139, 92, 246, 0.12);
   --blip-purple-text: #a78bfa;
@@ -49,14 +50,14 @@
 
   /* === Frosted Glass (sidebar panels) === */
   --glass-frosted-fill: rgba(255, 255, 255, 0.12);
-  --glass-frosted-border: rgba(255, 255, 255, 0.12);
+  --glass-frosted-border: rgba(255, 255, 255, 0.08);
   --glass-frosted-radius: 20px;
-  --glass-frosted-blur: 20px;
+  --glass-frosted-blur: 24px;
   --glass-frosted-saturate: 1.8;
 
   /* === Frosted Card (inner cards) === */
   --glass-card-fill: rgba(255, 255, 255, 0.1);
   --glass-card-border: rgba(255, 255, 255, 0.08);
   --glass-card-radius: 14px;
-  --glass-card-blur: 12px;
+  --glass-card-blur: 16px;
 }

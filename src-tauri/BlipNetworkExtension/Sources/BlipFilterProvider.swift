@@ -51,11 +51,23 @@ class BlipFilterProvider: NEFilterDataProvider {
     /// Pending approval requests (flow allowed temporarily, waiting for user decision)
     private var pendingApprovals: [String: UInt64] = [:] // requestId -> timestamp
 
+    /// Heartbeat timer — sends stats to app every 10 seconds
+    private var heartbeatTimer: DispatchSourceTimer?
+    private let startTime = UInt64(Date().timeIntervalSince1970 * 1000)
+
+    /// DNS blocked counter (incremented when DNS-blocked IP is caught)
+    private var dnsBlockedCount: UInt64 = 0
+
     // MARK: - Filter Lifecycle
 
     override func startFilter(completionHandler: @escaping (Error?) -> Void) {
         os_log("BlipFilter: starting (v2 rule engine)", log: log, type: .info)
         neDebugLog("BlipFilter: startFilter called (v2)")
+
+        // Restore cached rules before socket connects (fail-closed with persisted config)
+        if ruleIndex.restoreFromCache() {
+            os_log("BlipFilter: restored rules from cache", log: log, type: .info)
+        }
 
         let networkRule = NENetworkRule(
             remoteNetwork: nil,
@@ -78,6 +90,7 @@ class BlipFilterProvider: NEFilterDataProvider {
                     self.socketBridge?.delegate = self
                     self.socketBridge?.connect()
                     self.startFlowReportTimer()
+                    self.startHeartbeatTimer()
                 }
             }
             completionHandler(error)
@@ -88,6 +101,8 @@ class BlipFilterProvider: NEFilterDataProvider {
         os_log("BlipFilter: stopping, reason: %d, total flows: %llu", log: log, type: .info, reason.rawValue, flowCount)
         flowReportTimer?.cancel()
         flowReportTimer = nil
+        heartbeatTimer?.cancel()
+        heartbeatTimer = nil
         socketBridge?.disconnect()
         socketBridge = nil
         completionHandler()
@@ -117,10 +132,15 @@ class BlipFilterProvider: NEFilterDataProvider {
             return .allow()
         }
 
-        // 3. Resolve bundle ID
+        // 3. Resolve bundle ID + process info
         var bundleId: String? = nil
-        if let token = socketFlow.sourceAppAuditToken {
-            bundleId = bundleIdentifier(from: token)
+        var processPath: String? = nil
+        var codeSigned: Bool = false
+        if let token = socketFlow.sourceAppAuditToken,
+           let info = resolveProcess(from: token) {
+            bundleId = info.bundleId
+            processPath = info.processPath
+            codeSigned = info.codeSigned
         }
 
         // 4. System whitelist — always allow Apple processes and Blip itself
@@ -134,6 +154,7 @@ class BlipFilterProvider: NEFilterDataProvider {
         blockedIPsLock.unlock()
         if isBlocked {
             blockedCount += 1
+            dnsBlockedCount += 1
             sendBlockEvent(bundleId: bundleId ?? "unknown", destIp: destIp, destPort: destPort,
                            proto: "unknown", direction: "outbound", reason: "dns_block", ruleId: nil)
             return .drop()
@@ -192,7 +213,8 @@ class BlipFilterProvider: NEFilterDataProvider {
                                              filterOutbound: true, peekOutboundBytes: Int.max)
                 sendConnectionEvent(bundleId: bid, destIp: destIp, destPort: destPort,
                                     proto: protoStr, direction: dirStr, verdict: "allow",
-                                    matchedRuleId: ruleId, domain: cachedDomain)
+                                    matchedRuleId: ruleId, domain: cachedDomain,
+                                    processPath: processPath, codeSigned: codeSigned)
             case .deny:
                 verdict = .drop()
                 blockedCount += 1
@@ -200,7 +222,8 @@ class BlipFilterProvider: NEFilterDataProvider {
                                proto: protoStr, direction: dirStr, reason: "rule", ruleId: ruleId)
                 sendConnectionEvent(bundleId: bid, destIp: destIp, destPort: destPort,
                                     proto: protoStr, direction: dirStr, verdict: "deny",
-                                    matchedRuleId: ruleId, domain: cachedDomain)
+                                    matchedRuleId: ruleId, domain: cachedDomain,
+                                    processPath: processPath, codeSigned: codeSigned)
             case .ask:
                 // Allow temporarily, send approval request
                 verdict = .filterDataVerdict(withFilterInbound: true, peekInboundBytes: Int.max,
@@ -280,13 +303,15 @@ class BlipFilterProvider: NEFilterDataProvider {
 
     private func sendConnectionEvent(bundleId: String, destIp: String, destPort: UInt16,
                                      proto: String, direction: String, verdict: String,
-                                     matchedRuleId: String?, domain: String?) {
+                                     matchedRuleId: String?, domain: String?,
+                                     processPath: String? = nil, codeSigned: Bool? = nil) {
         workQueue.async { [weak self] in
             let ts = UInt64(Date().timeIntervalSince1970 * 1000)
             let event = NEConnectionEvent(
                 sourceAppId: bundleId, sourcePid: 0,
                 destIp: destIp, destPort: Int(destPort),
-                protocol: proto, direction: direction, timestampMs: ts
+                protocol: proto, direction: direction, timestampMs: ts,
+                processPath: processPath, codeSigned: codeSigned
             )
             self?.socketBridge?.send(event: event, verdict: verdict,
                                     matchedRuleId: matchedRuleId, domain: domain)
@@ -377,6 +402,62 @@ class BlipFilterProvider: NEFilterDataProvider {
         ipToDomainLock.unlock()
     }
 
+    // MARK: - Heartbeat
+
+    private func startHeartbeatTimer() {
+        let timer = DispatchSource.makeTimerSource(queue: workQueue)
+        timer.schedule(deadline: .now() + 10.0, repeating: 10.0)
+        timer.setEventHandler { [weak self] in
+            self?.sendHeartbeat()
+        }
+        timer.resume()
+        heartbeatTimer = timer
+    }
+
+    private func sendHeartbeat() {
+        let now = UInt64(Date().timeIntervalSince1970 * 1000)
+        let neVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
+        let neBuild = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
+
+        ipToDomainLock.lock()
+        let cacheSize = ipToDomain.count
+        ipToDomainLock.unlock()
+
+        let heartbeat: [String: Any] = [
+            "type": "ne_heartbeat",
+            "flow_count": flowCount,
+            "blocked_count": blockedCount,
+            "uptime_ms": now - startTime,
+            "rule_count": ruleIndex.compiledRuleCount,
+            "dns_blocked_count": dnsBlockedCount,
+            "dns_cache_size": cacheSize,
+            "socket_connected": socketBridge?.isConnected ?? false,
+            "ne_version": neVersion,
+            "ne_build": neBuild,
+            "mode": ruleIndex.mode,
+        ]
+        socketBridge?.sendRaw(jsonDict: heartbeat)
+    }
+
+    /// Respond to a query_status command from the app with a full diagnostic snapshot.
+    func handleQueryStatus() {
+        sendHeartbeat() // heartbeat contains all status fields
+    }
+
+    /// Send a structured error event to the app.
+    func sendErrorEvent(category: String, message: String, severity: String = "error") {
+        let ts = UInt64(Date().timeIntervalSince1970 * 1000)
+        let errorEvent: [String: Any] = [
+            "type": "ne_error",
+            "category": category,
+            "message": message,
+            "severity": severity,
+            "timestamp_ms": ts,
+        ]
+        socketBridge?.sendRaw(jsonDict: errorEvent)
+        neDebugLog("NE error [\(category)/\(severity)]: \(message)")
+    }
+
     // MARK: - Helpers
 
     private func isPrivateIP(_ ip: String) -> Bool {
@@ -393,6 +474,11 @@ class BlipFilterProvider: NEFilterDataProvider {
     }
 
     private func bundleIdentifier(from auditToken: Data?) -> String? {
+        return resolveProcess(from: auditToken)?.bundleId
+    }
+
+    /// Resolve process info from an audit token — returns bundle ID, executable path, and code signing status.
+    private func resolveProcess(from auditToken: Data?) -> (bundleId: String?, processPath: String?, codeSigned: Bool)? {
         guard let token = auditToken, token.count >= 32 else { return nil }
 
         let pid = token.withUnsafeBytes { ptr -> Int32 in
@@ -404,9 +490,12 @@ class BlipFilterProvider: NEFilterDataProvider {
         let pathLen = proc_pidpath(pid, &pathBuffer, UInt32(MAXPATHLEN))
         guard pathLen > 0 else { return nil }
 
-        let path = String(cString: pathBuffer)
+        let processPath = String(cString: pathBuffer)
 
-        var url = URL(fileURLWithPath: path)
+        // Check code signing status
+        let codeSigned = SecStaticCode.isValidlySigned(path: processPath)
+
+        var url = URL(fileURLWithPath: processPath)
         while url.pathExtension != "app" && url.path != "/" {
             url = url.deletingLastPathComponent()
         }
@@ -415,11 +504,27 @@ class BlipFilterProvider: NEFilterDataProvider {
             let infoPlist = url.appendingPathComponent("Contents/Info.plist")
             if let dict = NSDictionary(contentsOf: infoPlist),
                let bundleId = dict["CFBundleIdentifier"] as? String {
-                return bundleId
+                return (bundleId, processPath, codeSigned)
             }
         }
 
-        return path.components(separatedBy: "/").last
+        let fallbackName = processPath.components(separatedBy: "/").last
+        return (fallbackName, processPath, codeSigned)
+    }
+}
+
+// MARK: - Code Signing Helper
+
+import Security
+
+extension SecStaticCode {
+    /// Quick check if a binary at the given path has a valid code signature.
+    static func isValidlySigned(path: String) -> Bool {
+        var staticCode: SecStaticCode?
+        let url = URL(fileURLWithPath: path) as CFURL
+        guard SecStaticCodeCreateWithPath(url, [], &staticCode) == errSecSuccess,
+              let code = staticCode else { return false }
+        return SecStaticCodeCheckValidity(code, [], nil) == errSecSuccess
     }
 }
 
@@ -473,5 +578,9 @@ extension BlipFilterProvider: SocketBridgeDelegate {
         pendingApprovals.removeValue(forKey: requestId)
         neDebugLog("BlipFilter: approval verdict for \(requestId): \(action)")
         // Note: The rule created from this verdict will be synced via firewall_config
+    }
+
+    func socketBridgeDidReceiveQueryStatus(_ bridge: SocketBridge) {
+        handleQueryStatus()
     }
 }

@@ -9,6 +9,10 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "tauri": "tauri",
+    "docs:analyze": "node scripts/docs/analyze-repo.mjs",
+    "docs:evidence": "node scripts/docs/collect-evidence.mjs",
+    "docs:book": "node scripts/docs/generate-book.mjs",
+    "docs:refresh": "node scripts/docs/refresh.mjs",
     "website:dev": "vite --config website/vite.config.ts",
     "website:build": "vite build --config website/vite.config.ts",
     "website:preview": "vite preview --config website/vite.config.ts"
@@ -37,7 +41,7 @@
   "devDependencies": {
     "@eslint/js": "^9.39.4",
     "@tauri-apps/cli": "^2.10.1",
-    "@types/node": "^24.12.0",
+    "@types/node": "^25.5.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
@@ -48,7 +52,7 @@
     "globals": "^17.4.0",
     "pmtiles": "^4.4.0",
     "sharp": "^0.34.5",
-    "typescript": "~5.9.3",
+    "typescript": "~6.0.2",
     "typescript-eslint": "^8.58.0",
     "vite": "^8.0.3"
   }

@@ -41,6 +41,7 @@ import { SetupWizard } from "./components/setup/SetupWizard";
 import { useListeningPorts } from "./hooks/useListeningPorts";
 import { FirewallAlertOverlay } from "./components/firewall/FirewallAlertToast";
 import { AlertModal } from "./components/modals/AlertModal";
+import { GuideModal } from "./components/modals/GuideModal";
 import { useAppUpdate } from "./hooks/useAppUpdate";
 import { Topbar } from "./ui/components/Topbar";
 import { SegmentedControl } from "./ui/components/SegmentedControl";
@@ -56,6 +57,12 @@ import "./App.css";
 
 // Register offline tile protocols before any Map component renders
 registerOfflineProtocols();
+
+const helpCircle = `
+  <circle cx="12" cy="12" r="9"></circle>
+  <path d="M9.1 9.2a2.95 2.95 0 1 1 5.06 2.08c-.48.52-1.12.88-1.58 1.4-.45.5-.57.98-.57 1.82"></path>
+  <circle cx="12" cy="17.2" r=".7" fill="currentColor" stroke="none"></circle>
+`;
 
 function App() {
   const { location, setLocation, selfInfo, elevationBanner, setElevationBanner } = useUserLocation();
@@ -83,9 +90,8 @@ function App() {
       .then((v) => { if (v === "false") setShowInactive(false); })
       .catch(() => {});
   }, []);
-  const [mode, setMode] = useState<"network" | "firewall" | "ports">("network");
+  const [mode, setMode] = useState<"network" | "guard" | "firewall" | "ports">("network");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [sidebarTab, setSidebarTab] = useState<"network" | "trackers" | "dns">("network");
   const [historicalEndpoints, setHistoricalEndpoints] = useState<HistoricalEndpoint[]>([]);
   const [errorModal, setErrorModal] = useState<{ title: string; description: string; detail?: string } | null>(null);
   const [treemapOpen, setTreemapOpen] = useState(false);
@@ -95,6 +101,7 @@ function App() {
   const setupTriggered = useRef(false);
   const [showWizard, setShowWizard] = useState(false);
   const [neUpdateNeeded, setNeUpdateNeeded] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(false);
 
   // Check if first-time setup wizard needs to be shown
   useEffect(() => {
@@ -141,13 +148,13 @@ function App() {
       .catch((err) => console.warn("Failed to load historical endpoints:", err));
   }, []);
 
-  const { connections, totalEver, capturing, startCapture, stopCapture } = useNetworkCapture(sidebarTab);
+  const { connections, totalEver, capturing, startCapture, stopCapture } = useNetworkCapture(mode);
 
   const userPos: [number, number] | null = location
     ? [location.longitude, location.latitude]
     : null;
 
-  const { log: dnsLog, stats: dnsStats, blockedAttempts } = useDnsCapture(sidebarTab === "dns");
+  const { log: dnsLog, stats: dnsStats, blockedAttempts } = useDnsCapture(mode === "guard");
   const { tracedRoutes } = useRouteTracing();
   const [emptyRoutes] = useState<globalThis.Map<string, TracedRoute>>(() => new globalThis.Map());
   const { arcs, endpoints, particles, blockedMarkers, activeCableIds, hopMarkers, blockedFlashes, dashSegments } = useArcAnimation(connections, userPos, dnsStats.blocked_count, blockedAttempts, showHops ? tracedRoutes : emptyRoutes, activeServiceFilter, latencyHeatmap, selectedEndpoint?.id ?? null);
@@ -206,16 +213,26 @@ function App() {
         ip={location?.ip}
         coordinates={location ? `${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}` : undefined}
         mode={mode}
-        onModeChange={(v) => setMode(v as "network" | "firewall" | "ports")}
+        onModeChange={(v) => setMode(v as "network" | "guard" | "firewall" | "ports")}
         trailing={
-          <Button
-            variant="ghost"
-            size="md"
-            icon={sidebarCollapsed ? panelRightOpen : panelRightClose}
-            iconOnly
-            aria-label={sidebarCollapsed ? "Show sidebar" : "Hide sidebar"}
-            onClick={() => setSidebarCollapsed((v) => !v)}
-          />
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <Button
+              variant="ghost"
+              size="md"
+              icon={sidebarCollapsed ? panelRightOpen : panelRightClose}
+              iconOnly
+              aria-label={sidebarCollapsed ? "Show sidebar" : "Hide sidebar"}
+              onClick={() => setSidebarCollapsed((v) => !v)}
+            />
+            <Button
+              variant="ghost"
+              size="md"
+              icon={helpCircle}
+              iconOnly
+              aria-label="Open guide"
+              onClick={() => setGuideOpen(true)}
+            />
+          </div>
         }
         onMouseDown={() => getCurrentWindow().startDragging()}
       />
@@ -268,7 +285,7 @@ function App() {
         blockedFlashes={blockedFlashes}
         activeCableIds={activeCableIds}
         hopMarkers={hopMarkers}
-        dashSegments={dashSegments}
+        dashSegments={showParticles ? dashSegments : []}
         heatmapData={heatmapData}
         showParticles={showParticles}
         showHeatmap={showHeatmap}
@@ -309,26 +326,14 @@ function App() {
               tracedRoutes={tracedRoutes}
             />
           ) : (
-            <>
-              <SegmentedControl
-                options={[
-                  { value: "network", label: "Network" },
-                  { value: "trackers", label: "Trackers" },
-                  { value: "dns", label: "DNS" },
-                ]}
-                value={sidebarTab}
-                onChange={(v) => setSidebarTab(v as "network" | "trackers" | "dns")}
-                size="md"
-              />
-              {sidebarTab === "network" ? (
-                <GlobalStats connections={showInactive ? connections : connections.filter((c) => c.active)} totalEver={totalEver} bandwidth={bandwidth} serviceSamples={serviceSamples} serviceBreakdown={serviceBreakdown} serviceColors={serviceColors} downloadMbps={speedTest.downloadMbps} uploadMbps={speedTest.uploadMbps} pingMs={speedTest.pingMs} speedTesting={speedTest.testing} lastSpeedTestTime={speedTest.lastTestTime} onRunSpeedTest={speedTest.runTest} speedStage={speedTest.stage} liveDownloadMbps={speedTest.liveDownloadMbps} liveUploadMbps={speedTest.liveUploadMbps} speedPercent={speedTest.percent} activeServiceFilter={activeServiceFilter} onServiceClick={setActiveServiceFilter} onOpenTreemap={() => setTreemapOpen(true)} />
-              ) : sidebarTab === "trackers" ? (
-                <TrackerStats visible={sidebarTab === "trackers"} />
-              ) : (
-                <DnsLog log={dnsLog} stats={dnsStats} />
-              )}
-            </>
+            <GlobalStats connections={showInactive ? connections : connections.filter((c) => c.active)} totalEver={totalEver} bandwidth={bandwidth} serviceSamples={serviceSamples} serviceBreakdown={serviceBreakdown} serviceColors={serviceColors} downloadMbps={speedTest.downloadMbps} uploadMbps={speedTest.uploadMbps} pingMs={speedTest.pingMs} speedTesting={speedTest.testing} lastSpeedTestTime={speedTest.lastTestTime} onRunSpeedTest={speedTest.runTest} speedStage={speedTest.stage} liveDownloadMbps={speedTest.liveDownloadMbps} liveUploadMbps={speedTest.liveUploadMbps} speedPercent={speedTest.percent} activeServiceFilter={activeServiceFilter} onServiceClick={setActiveServiceFilter} onOpenTreemap={() => setTreemapOpen(true)} />
           )
+        }
+        guardContent={
+          <>
+            <TrackerStats visible={mode === "guard"} />
+            <DnsLog log={dnsLog} stats={dnsStats} />
+          </>
         }
         firewallContent={
           <FirewallContent apps={firewallApps} onSetRule={setFirewallRule} onDeleteRuleById={deleteRuleById} connections={connections} />
@@ -434,6 +439,8 @@ function App() {
       {showWizard && (
         <SetupWizard onComplete={() => setShowWizard(false)} />
       )}
+
+      <GuideModal open={guideOpen} onClose={() => setGuideOpen(false)} />
 
     </div>
   );

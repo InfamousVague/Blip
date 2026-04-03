@@ -75,6 +75,16 @@ class SocketBridge {
         sendEncodable(wrapped)
     }
 
+    /// Send an ACK for a critical message. No-op if msg_id is nil.
+    func sendAck(msgId: String?, status: String) {
+        guard let msgId = msgId else { return }
+        sendRaw(jsonDict: [
+            "type": "ack",
+            "msg_id": msgId,
+            "status": status,
+        ])
+    }
+
     func sendRaw(jsonDict: [String: Any]) {
         queue.async { [weak self] in
             guard let self = self, self.isConnected, let fh = self.fileHandle else {
@@ -251,16 +261,19 @@ class SocketBridge {
             let rules = json["rules"] as? [[String: Any]] ?? []
             delegate?.socketBridge(self, didReceiveFirewallConfig: mode, killSwitch: killSwitch,
                                   profileId: profileId, rules: rules)
+            sendAck(msgId: json["msg_id"] as? String, status: "ok")
 
         case "dns_cache_update":
             if let mappings = json["mappings"] as? [String: String] {
                 delegate?.socketBridge(self, didReceiveDNSCacheUpdate: mappings)
             }
+            sendAck(msgId: json["msg_id"] as? String, status: "ok")
 
         case "kill_switch":
             if let active = json["active"] as? Bool {
                 delegate?.socketBridge(self, didReceiveKillSwitch: active)
             }
+            sendAck(msgId: json["msg_id"] as? String, status: "ok")
 
         case "approval_verdict":
             if let requestId = json["request_id"] as? String,
@@ -273,6 +286,7 @@ class SocketBridge {
                 let domainSet = Set(domains.map { $0.lowercased() })
                 delegate?.socketBridge(self, didReceiveBlocklistSync: domainSet)
             }
+            sendAck(msgId: json["msg_id"] as? String, status: "ok")
 
         case "blocked_ips":
             if let ips = json["ips"] as? [String] {
@@ -289,6 +303,9 @@ class SocketBridge {
                 }
                 delegate?.socketBridge(self, didReceiveFirewallRules: rules)
             }
+
+        case "query_status":
+            delegate?.socketBridgeDidReceiveQueryStatus(self)
 
         default:
             break

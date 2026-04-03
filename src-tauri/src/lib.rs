@@ -101,6 +101,24 @@ fn get_blocklists(state: tauri::State<AppState>) -> Vec<BlocklistInfo> {
 }
 
 
+// --- NE Live Status ---
+
+struct NEStatusState {
+    status: std::sync::Mutex<ne_bridge::types::NELiveStatus>,
+}
+
+#[tauri::command]
+fn get_ne_live_status(app: tauri::AppHandle) -> Result<ne_bridge::types::NELiveStatus, String> {
+    let state: tauri::State<NEStatusState> = app.state();
+    let s = state.status.lock().map_err(|e| e.to_string())?;
+    Ok(s.clone())
+}
+
+#[tauri::command]
+fn get_expected_ne_version() -> String {
+    ne_bridge::EXPECTED_NE_VERSION.to_string()
+}
+
 // --- Offline tile serving via local HTTP ---
 
 use std::collections::HashMap;
@@ -373,6 +391,9 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_geolocation::init())
         .plugin(tauri_plugin_notification::init())
+        .manage(NEStatusState {
+            status: std::sync::Mutex::new(ne_bridge::types::NELiveStatus::default()),
+        })
         .manage(TileServerState {
             port: std::sync::Arc::new(std::sync::atomic::AtomicU16::new(0)),
         })
@@ -441,6 +462,8 @@ pub fn run() {
             commands::system::clear_history,
             commands::system::get_tile_server_port,
             commands::system::get_offline_glyph,
+            get_ne_live_status,
+            get_expected_ne_version,
             commands::network::trace_route,
             commands::system::get_database_stats,
             commands::network::get_traced_route,

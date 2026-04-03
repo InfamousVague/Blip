@@ -7,15 +7,16 @@ const MAX_WIDTH = 500;
 const DEFAULT_WIDTH = 340;
 
 interface SidebarProps {
-  mode: "network" | "firewall" | "ports";
+  mode: "network" | "guard" | "firewall" | "ports";
   networkContent: ReactNode;
+  guardContent?: ReactNode;
   firewallContent: ReactNode;
   portsContent?: ReactNode;
   collapsed?: boolean;
   onWidthChange?: (width: number) => void;
 }
 
-export function Sidebar({ mode, networkContent, firewallContent, portsContent, collapsed = false, onWidthChange }: SidebarProps) {
+export function Sidebar({ mode, networkContent, guardContent, firewallContent, portsContent, collapsed = false, onWidthChange }: SidebarProps) {
   const [width, setWidth] = useState(DEFAULT_WIDTH);
   const dragging = useRef(false);
   const startX = useRef(0);
@@ -64,6 +65,17 @@ export function Sidebar({ mode, networkContent, firewallContent, portsContent, c
         <div className="sidebar__resize-handle" onMouseDown={onMouseDown} />
         <div className="sidebar__content">
           {networkContent}
+        </div>
+      </div>
+
+      {/* Guard sidebar (Trackers + DNS) */}
+      <div
+        className={`sidebar ${!collapsed && mode === "guard" ? "sidebar--active" : "sidebar--hidden"}`}
+        style={{ width }}
+      >
+        <div className="sidebar__resize-handle" onMouseDown={onMouseDown} />
+        <div className="sidebar__content">
+          {guardContent}
         </div>
       </div>
 

@@ -1,0 +1,294 @@
+.guide-modal__backdrop {
+  position: fixed;
+  inset: 0;
+  background: transparent;
+  z-index: 9050;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: guide-fade-in 0.2s ease-out;
+}
+
+.guide-modal__shell {
+  width: 52rem;
+  max-width: 95vw;
+  height: 560px;
+  max-height: 80vh;
+  animation: guide-scale-in 0.2s ease-out;
+
+  /* Identical to .sidebar glass and settings modal */
+  background: rgba(0, 0, 0, 0.004);
+  backdrop-filter: blur(20px) saturate(1.8);
+  -webkit-backdrop-filter: blur(20px) saturate(1.8);
+  border: 1px solid rgba(227, 227, 227, 0.06);
+  border-radius: 20px;
+
+  /* Layout */
+  display: flex;
+  flex-direction: row;
+  gap: 10px;
+  padding: 20px;
+  overflow: hidden;
+}
+
+.guide-modal__header {
+  display: none;
+}
+
+.guide-modal__body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  gap: 10px;
+}
+
+/* Navigation Card — Frosted style */
+.guide-modal__nav {
+  width: 180px;
+  flex-shrink: 0;
+  overflow: hidden;
+  padding: 12px;
+  border-radius: 14px;
+  background: var(--glass-card-fill);
+  border: 1px solid var(--glass-card-border);
+  backdrop-filter: blur(var(--glass-card-blur));
+  -webkit-backdrop-filter: blur(var(--glass-card-blur));
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.guide-modal__nav-title {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: var(--weight-semibold);
+  color: var(--blip-text-primary);
+  padding: 0 2px 4px;
+  margin: 0;
+}
+
+.guide-modal__nav-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: var(--blip-text-tertiary);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm-size);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: left;
+  width: 100%;
+}
+
+.guide-modal__nav-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke: currentColor;
+  stroke-width: 2;
+  fill: none;
+}
+
+.guide-modal__nav-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.guide-modal__nav-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--blip-text-primary);
+}
+
+.guide-modal__nav-item--active {
+  background: var(--blip-purple-subtle);
+  color: var(--blip-text-primary);
+  font-weight: var(--weight-semibold);
+}
+
+/* Content Card — Frosted style */
+.guide-modal__content {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  padding: 16px;
+  border-radius: 14px;
+  background: var(--glass-card-fill);
+  border: 1px solid var(--glass-card-border);
+  backdrop-filter: blur(var(--glass-card-blur));
+  -webkit-backdrop-filter: blur(var(--glass-card-blur));
+}
+
+.guide-modal__state {
+  margin: 8px 0;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--blip-text-secondary);
+}
+
+.guide-modal__state--error {
+  color: #f5a3a6;
+}
+
+/* Markdown Prose Styles */
+.guide-prose {
+  color: var(--blip-text-secondary);
+  font-family: var(--font-sans);
+  line-height: 1.55;
+}
+
+.guide-prose__h1 {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--blip-text-primary);
+  margin: 0 0 12px;
+  line-height: 1.3;
+}
+
+.guide-prose__h2 {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--blip-text-primary);
+  margin: 16px 0 10px;
+  line-height: 1.3;
+}
+
+.guide-prose__h3 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--blip-text-primary);
+  margin: 12px 0 8px;
+  line-height: 1.3;
+}
+
+.guide-prose__p {
+  margin: 0 0 10px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.guide-prose__list {
+  margin: 8px 0 12px;
+  padding-left: 20px;
+  font-size: 13px;
+}
+
+.guide-prose__list li {
+  margin-bottom: 6px;
+}
+
+.guide-prose__list--ordered {
+  list-style-type: decimal;
+}
+
+.guide-prose__code {
+  margin: 10px 0 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(5, 9, 16, 0.6);
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.4;
+  color: rgba(212, 228, 255, 0.95);
+}
+
+.guide-prose code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: rgba(212, 228, 255, 0.95);
+}
+
+.guide-prose strong {
+  color: var(--blip-text-primary);
+  font-weight: 700;
+}
+
+/* Animations */
+@keyframes guide-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes guide-scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (max-width: 900px) {
+  .guide-modal__shell {
+    width: 96vw;
+    height: 92vh;
+  }
+
+  .guide-modal__body {
+    grid-template-columns: 1fr;
+    grid-template-rows: 140px 1fr;
+    gap: 10px;
+  }
+
+  .guide-modal__nav {
+    width: 100%;
+    flex-shrink: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+    gap: 6px;
+    align-content: start;
+    overflow-y: visible;
+  }
+
+  .guide-modal__nav-title {
+    display: none;
+  }
+
+  .guide-modal__nav-item {
+    font-size: 12px;
+    padding: 8px;
+  }
+
+  .guide-modal__nav-icon {
+    width: 16px;
+    height: 16px;
+  }
+
+  .guide-modal__nav-label {
+    display: none;
+  }
+
+  .guide-modal__content {
+    padding: 14px;
+  }
+
+  .guide-prose__h1 {
+    font-size: 18px;
+  }
+
+  .guide-prose__h2 {
+    font-size: 13px;
+    margin: 12px 0 8px;
+  }
+
+  .guide-prose__p {
+    font-size: 12px;
+  }
+
+  .guide-prose__list {
+    font-size: 12px;
+  }
+}

@@ -343,4 +343,8 @@ extension BlipDNSProvider: SocketBridgeDelegate {
     func socketBridge(_ bridge: SocketBridge, didReceiveApprovalVerdict requestId: String, action: String) {
         // DNS proxy doesn't use approval verdicts — that's for the filter provider
     }
+
+    func socketBridgeDidReceiveQueryStatus(_ bridge: SocketBridge) {
+        // DNS proxy doesn't handle query_status — that's for the filter provider
+    }
 }

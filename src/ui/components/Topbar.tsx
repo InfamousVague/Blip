@@ -24,6 +24,7 @@ interface TopbarProps {
 
 const DEFAULT_MODES = [
   { value: 'network', label: 'Network' },
+  { value: 'guard', label: 'Guard' },
   { value: 'firewall', label: 'Firewall' },
   { value: 'ports', label: 'Ports' },
 ];

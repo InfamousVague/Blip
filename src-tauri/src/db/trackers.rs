@@ -29,19 +29,24 @@ impl Database {
     pub fn get_tracker_stats(&self) -> Result<TrackerStats, String> {
         let conn = self.conn.lock().unwrap();
 
-        let (total_hits, total_bytes): (u64, u64) = conn
-            .query_row(
-                "SELECT COALESCE(SUM(total_hits), 0), COALESCE(SUM(total_bytes_in + total_bytes_out), 0)
-                 FROM tracker_summary",
-                [],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .unwrap_or((0, 0));
-
+        // Merge two sources:
+        // 1. tracker_summary — connections flagged as trackers (connected to tracker IPs)
+        // 2. dns_queries where is_blocked = true — domains blocked at DNS level (never connected)
+        //
+        // Use a UNION to combine both, grouping by domain.
         let mut stmt = conn
             .prepare(
-                "SELECT domain, category, total_hits, total_bytes_in + total_bytes_out, last_seen_ms
-                 FROM tracker_summary
+                "SELECT domain, category, SUM(hits) as total_hits, SUM(bytes) as total_bytes, MAX(last_seen) as last_seen_ms
+                 FROM (
+                     SELECT domain, category, total_hits as hits, total_bytes_in + total_bytes_out as bytes, last_seen_ms as last_seen
+                     FROM tracker_summary
+                     UNION ALL
+                     SELECT domain, 'blocked' as category, COUNT(*) as hits, 0 as bytes, MAX(timestamp_ms) as last_seen
+                     FROM dns_queries
+                     WHERE is_blocked = 1
+                     GROUP BY domain
+                 )
+                 GROUP BY domain
                  ORDER BY total_hits DESC
                  LIMIT 500",
             )
@@ -60,6 +65,9 @@ impl Database {
             .map_err(|e| format!("Query failed: {}", e))?
             .filter_map(|r| r.ok())
             .collect();
+
+        let total_hits: u64 = top_domains.iter().map(|d| d.total_hits).sum();
+        let total_bytes: u64 = top_domains.iter().map(|d| d.total_bytes).sum();
 
         Ok(TrackerStats {
             total_tracker_hits: total_hits,

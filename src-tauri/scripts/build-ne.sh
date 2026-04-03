@@ -22,14 +22,7 @@ if ! xcode-select -p 2>/dev/null | grep -q "Xcode.app"; then
     SYSEXT_DIR="$RESOURCES_DIR/com.infamousvague.blip.network-extension.systemextension"
     if [ -d "$SYSEXT_DIR" ] && [ -f "$SYSEXT_DIR/Contents/MacOS/com.infamousvague.blip.network-extension" ]; then
         echo "Full Xcode not detected, but NE binary already exists — skipping rebuild."
-        # Still update the version in Info.plist
-        APP_VERSION=$(node -e "console.log(require('$TAURI_DIR/tauri.conf.json').version)" 2>/dev/null || echo "")
-        if [ -n "$APP_VERSION" ]; then
-            BUILD_NUMBER=$(date +%s)
-            plutil -replace CFBundleShortVersionString -string "$APP_VERSION" "$SYSEXT_DIR/Contents/Info.plist" 2>/dev/null || true
-            plutil -replace CFBundleVersion -string "$BUILD_NUMBER" "$SYSEXT_DIR/Contents/Info.plist" 2>/dev/null || true
-            echo "NE version updated to $APP_VERSION ($BUILD_NUMBER)"
-        fi
+        # Do not mutate checked-in resources when using cached binaries.
         exit 0
     fi
     echo "WARNING: Full Xcode not detected and no pre-built NE binary found."

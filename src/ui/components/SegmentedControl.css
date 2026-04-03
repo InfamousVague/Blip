@@ -26,7 +26,7 @@
 }
 
 .blip-segmented__item--active {
-  background: var(--blip-purple-muted);
+  background: var(--blip-purple-active);
   color: var(--blip-text-primary);
   font-weight: 600;
 }

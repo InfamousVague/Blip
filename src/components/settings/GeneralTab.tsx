@@ -207,6 +207,155 @@ export function GeneralTab({ firewallMode, onFirewallModeChange }: Props) {
           <span className="blip-text-row-desc">Checking systems...</span>
         )}
       </div>
+
+      <Separator />
+
+      {/* NE Live Status */}
+      <NEStatusPanel />
+    </>
+  );
+}
+
+// --- NE Status Panel ---
+
+interface NELiveStatus {
+  connected: boolean;
+  ne_version: string;
+  ne_build: string;
+  mode: string;
+  flow_count: number;
+  blocked_count: number;
+  uptime_ms: number;
+  rule_count: number;
+  dns_blocked_count: number;
+  dns_cache_size: number;
+  last_heartbeat_ms: number;
+  errors: { category: string; message: string; severity: string; timestamp_ms: number }[];
+}
+
+function formatUptime(ms: number): string {
+  if (ms === 0) return "—";
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${s % 60}s`;
+  const h = Math.floor(m / 60);
+  return `${h}h ${m % 60}m`;
+}
+
+function NEStatusPanel() {
+  const [status, setStatus] = useState<NELiveStatus | null>(null);
+  const [expectedVersion, setExpectedVersion] = useState<string>("");
+  const [showErrors, setShowErrors] = useState(false);
+
+  const refresh = useCallback(async () => {
+    try {
+      const s = await invoke<NELiveStatus>("get_ne_live_status");
+      setStatus(s);
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => {
+    invoke<string>("get_expected_ne_version").then(setExpectedVersion).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    refresh();
+    const interval = setInterval(refresh, 5000);
+    return () => clearInterval(interval);
+  }, [refresh]);
+
+  const isStale = status ? Date.now() - status.last_heartbeat_ms > 30_000 : true;
+
+  return (
+    <>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <span className="settings-group-title">Network Extension</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span
+            className="diagnostics-dot"
+            style={{
+              background: !status || !status.connected || isStale
+                ? "var(--blip-error)"
+                : "var(--blip-success)",
+            }}
+          />
+          <span className="blip-text-row-desc">
+            {!status ? "Unknown" : !status.connected ? "Disconnected" : isStale ? "No heartbeat" : "Connected"}
+          </span>
+        </div>
+      </div>
+
+      {status && status.connected && (
+        <div className="diagnostics-grid">
+          <div className="diagnostics-item">
+            <span className="blip-text-label" style={{ fontWeight: 500, color: "var(--blip-text-primary)" }}>Version</span>
+            <span className="blip-text-row-desc" style={
+              expectedVersion && status.ne_version !== expectedVersion && status.ne_version !== "?"
+                ? { color: "var(--blip-warning)" }
+                : undefined
+            }>
+              v{status.ne_version} (build {status.ne_build})
+              {expectedVersion && status.ne_version !== expectedVersion && status.ne_version !== "?" && (
+                <> — expected v{expectedVersion}</>
+              )}
+            </span>
+          </div>
+          <div className="diagnostics-item">
+            <span className="blip-text-label" style={{ fontWeight: 500, color: "var(--blip-text-primary)" }}>Uptime</span>
+            <span className="blip-text-row-desc">{formatUptime(status.uptime_ms)}</span>
+          </div>
+          <div className="diagnostics-item">
+            <span className="blip-text-label" style={{ fontWeight: 500, color: "var(--blip-text-primary)" }}>Flows</span>
+            <span className="blip-text-row-desc">{status.flow_count.toLocaleString()} total</span>
+          </div>
+          <div className="diagnostics-item">
+            <span className="blip-text-label" style={{ fontWeight: 500, color: "var(--blip-text-primary)" }}>Blocked</span>
+            <span className="blip-text-row-desc">{status.blocked_count.toLocaleString()} connections</span>
+          </div>
+          <div className="diagnostics-item">
+            <span className="blip-text-label" style={{ fontWeight: 500, color: "var(--blip-text-primary)" }}>Rules</span>
+            <span className="blip-text-row-desc">{status.rule_count} compiled</span>
+          </div>
+          <div className="diagnostics-item">
+            <span className="blip-text-label" style={{ fontWeight: 500, color: "var(--blip-text-primary)" }}>Mode</span>
+            <span className="blip-text-row-desc">{status.mode}</span>
+          </div>
+          <div className="diagnostics-item">
+            <span className="blip-text-label" style={{ fontWeight: 500, color: "var(--blip-text-primary)" }}>DNS Cache</span>
+            <span className="blip-text-row-desc">{status.dns_cache_size.toLocaleString()} entries</span>
+          </div>
+          <div className="diagnostics-item">
+            <span className="blip-text-label" style={{ fontWeight: 500, color: "var(--blip-text-primary)" }}>DNS Blocked</span>
+            <span className="blip-text-row-desc">{status.dns_blocked_count.toLocaleString()} IPs</span>
+          </div>
+        </div>
+      )}
+
+      {status && status.errors.length > 0 && (
+        <>
+          <button
+            onClick={() => setShowErrors(!showErrors)}
+            style={{
+              background: "none", border: "none", cursor: "pointer", padding: 0,
+              fontFamily: "var(--font-sans)", fontSize: 12, fontWeight: 500,
+              color: "var(--blip-error)", opacity: 0.8,
+            }}
+          >
+            {showErrors ? "Hide" : "Show"} errors ({status.errors.length})
+          </button>
+          {showErrors && status.errors.slice(-10).reverse().map((err, i) => (
+            <div key={i} style={{
+              padding: "4px 8px", borderRadius: 6, fontSize: 11,
+              background: "rgba(239, 68, 68, 0.08)",
+              color: "var(--blip-text-secondary)",
+              fontFamily: "var(--font-mono)",
+            }}>
+              [{err.category}] {err.message}
+            </div>
+          ))}
+        </>
+      )}
     </>
   );
 }

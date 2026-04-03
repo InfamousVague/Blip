@@ -38,3 +38,7 @@ native/blip-core/target/
 
 # Old hybrid tiles (replaced by PMTiles)
 src-tauri/resources/hybrid-tiles/
+
+# Generated documentation artifacts
+docs/generated/*.json
+docs/generated/logs/*.log

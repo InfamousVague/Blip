@@ -113,22 +113,76 @@ class RuleIndex {
     /// Rules where app_id = "*" (global rules).
     private var globalRules: [CompiledRule] = []
     /// Kill switch — when true, block ALL traffic.
-    var killSwitch: Bool = false
+    /// Load persisted state on init.
+    var killSwitch: Bool = {
+        let defaults = UserDefaults.standard
+        return defaults?.bool(forKey: "kill_switch_active") ?? false
+    }()
     /// Active profile ID.
     var activeProfileId: String = "default"
     /// Firewall mode: "ask", "allow_all", "deny_all"
-    var mode: String = "ask"
+    /// Load persisted mode from shared UserDefaults on init, default to "deny_all" (fail-closed).
+    var mode: String = {
+        let defaults = UserDefaults.standard
+        return defaults?.string(forKey: "firewall_mode") ?? "deny_all"
+    }()
 
     private let lock = NSLock()
+    private static let cacheFile = "/private/var/tmp/blip-rules-cache.json"
+
+    /// Total compiled rule count (for diagnostics).
+    var compiledRuleCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return rulesByApp.values.reduce(0) { $0 + $1.count } + globalRules.count
+    }
 
     /// Load rules from JSON array received from the Rust backend.
     func loadRules(from jsonRules: [[String: Any]], mode: String, killSwitch: Bool, profileId: String) {
+        loadRulesInternal(from: jsonRules, mode: mode, killSwitch: killSwitch, profileId: profileId)
+
+        // Persist mode to UserDefaults for fast access on next startup
+        let defaults = UserDefaults.standard
+        defaults?.set(mode, forKey: "firewall_mode")
+        defaults?.set(killSwitch, forKey: "kill_switch_active")
+
+        // Persist full config to file for NE restart survival
+        persistConfig(rules: jsonRules, mode: mode, killSwitch: killSwitch, profileId: profileId)
+    }
+
+    /// Restore rules from the cached file (called on NE startup before socket connects).
+    func restoreFromCache() -> Bool {
+        guard FileManager.default.fileExists(atPath: RuleIndex.cacheFile),
+              let data = try? Data(contentsOf: URL(fileURLWithPath: RuleIndex.cacheFile)),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return false
+        }
+
+        // Check if cache is less than 24 hours old
+        let timestamp = json["timestamp"] as? Double ?? 0
+        let age = Date().timeIntervalSince1970 - timestamp
+        if age > 86400 { // 24 hours
+            try? FileManager.default.removeItem(atPath: RuleIndex.cacheFile)
+            return false
+        }
+
+        let cachedMode = json["mode"] as? String ?? "deny_all"
+        let cachedKillSwitch = json["kill_switch"] as? Bool ?? false
+        let cachedProfileId = json["profile_id"] as? String ?? "default"
+        let cachedRules = json["rules"] as? [[String: Any]] ?? []
+
+        loadRulesInternal(from: cachedRules, mode: cachedMode, killSwitch: cachedKillSwitch, profileId: cachedProfileId)
+        neDebugLog("RuleIndex: restored \(cachedRules.count) rules from cache (age: \(Int(age))s)")
+        return true
+    }
+
+    /// Internal load without re-persisting (to avoid infinite loop from restoreFromCache → loadRules → persist).
+    private func loadRulesInternal(from jsonRules: [[String: Any]], mode: String, killSwitch: Bool, profileId: String) {
         var byApp: [String: [CompiledRule]] = [:]
         var global: [CompiledRule] = []
 
         for json in jsonRules {
             guard let compiled = compileRule(json) else { continue }
-
             if compiled.appId == "*" {
                 global.append(compiled)
             } else {
@@ -136,7 +190,6 @@ class RuleIndex {
             }
         }
 
-        // Sort each app's rules: specificity desc, then priority asc
         for key in byApp.keys {
             byApp[key]?.sort { a, b in
                 if a.specificity != b.specificity { return a.specificity > b.specificity }
@@ -155,6 +208,22 @@ class RuleIndex {
         self.killSwitch = killSwitch
         self.activeProfileId = profileId
         lock.unlock()
+    }
+
+    private func persistConfig(rules: [[String: Any]], mode: String, killSwitch: Bool, profileId: String) {
+        let config: [String: Any] = [
+            "mode": mode,
+            "kill_switch": killSwitch,
+            "profile_id": profileId,
+            "rules": rules,
+            "timestamp": Date().timeIntervalSince1970,
+        ]
+        do {
+            let data = try JSONSerialization.data(withJSONObject: config)
+            try data.write(to: URL(fileURLWithPath: RuleIndex.cacheFile), options: .atomic)
+        } catch {
+            neDebugLog("RuleIndex: failed to persist config: \(error)")
+        }
     }
 
     /// Match a connection against the rule index.

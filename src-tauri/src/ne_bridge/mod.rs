@@ -1,6 +1,11 @@
 pub mod types;
 mod handlers;
 
+/// Expected NE version — bump this when you update the NE's Info.plist CFBundleShortVersionString.
+/// The app compares this against the version the NE reports on connect.
+/// If they don't match, the frontend shows an "update NE" banner.
+pub const EXPECTED_NE_VERSION: &str = "1.8";
+
 use crate::blocklist::BlocklistStore;
 use crate::capture::nettop::ConnectionStore;
 use crate::capture::types::{Protocol, ResolvedConnection};
@@ -11,7 +16,7 @@ use crate::enrichment::Enricher;
 use crate::geoip::GeoIp;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 use tauri_plugin_notification::NotificationExt;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixListener;
@@ -137,8 +142,10 @@ impl NEBridge {
 
                                 let rules = db.get_all_rules_for_ne(&profile_id).unwrap_or_default();
 
+                                let msg_id = uuid::Uuid::new_v4().to_string();
                                 let config_msg = serde_json::json!({
                                     "type": "firewall_config",
+                                    "msg_id": msg_id,
                                     "mode": mode,
                                     "kill_switch": kill_switch,
                                     "active_profile_id": profile_id,
@@ -370,17 +377,24 @@ impl NEBridge {
                                         }
                                         "ne_hello" => {
                                             ne_hello_received.store(true, std::sync::atomic::Ordering::Relaxed);
-                                            // NE sends version on connect — check if it matches app version
                                             let ne_version = event.ne_version.as_deref().unwrap_or("unknown");
-                                            let app_version = env!("CARGO_PKG_VERSION");
-                                            log::info!("NE hello: ne_version={}, app_version={}", ne_version, app_version);
-                                            if ne_version != app_version && ne_version != "unknown" {
+                                            log::info!("NE hello: ne_version={}, expected={}", ne_version, EXPECTED_NE_VERSION);
+
+                                            // Update the live status with version info
+                                            if let Ok(ne_state) = Ok::<tauri::State<'_, crate::NEStatusState>, ()>(app_handle.state::<crate::NEStatusState>()) {
+                                                if let Ok(mut s) = ne_state.status.lock() {
+                                                    s.connected = true;
+                                                    s.ne_version = ne_version.to_string();
+                                                }
+                                            }
+
+                                            if ne_version != EXPECTED_NE_VERSION && ne_version != "unknown" {
                                                 log::warn!(
-                                                    "NE version mismatch: app={}, ne={}",
-                                                    app_version, ne_version
+                                                    "NE version mismatch: expected={}, actual={}",
+                                                    EXPECTED_NE_VERSION, ne_version
                                                 );
                                                 let _ = app_handle.emit("ne-version-mismatch", serde_json::json!({
-                                                    "expected": app_version,
+                                                    "expected": EXPECTED_NE_VERSION,
                                                     "actual": ne_version,
                                                 }));
                                             } else {
@@ -389,6 +403,58 @@ impl NEBridge {
                                                 let _ = app_handle.emit("ne-connected", serde_json::json!({
                                                     "version": ne_version,
                                                 }));
+                                            }
+                                        }
+                                        "ack" => {
+                                            let msg_id = event.ne_version.as_deref().unwrap_or("?"); // reuse field
+                                            if let Ok(raw) = serde_json::from_str::<serde_json::Value>(&line) {
+                                                let ack_id = raw["msg_id"].as_str().unwrap_or("?");
+                                                let status = raw["status"].as_str().unwrap_or("?");
+                                                log::debug!("NE ACK: msg_id={}, status={}", ack_id, status);
+                                            }
+                                        }
+                                        "ne_heartbeat" => {
+                                            if let Ok(raw) = serde_json::from_str::<serde_json::Value>(&line) {
+                                                let now_ms = std::time::SystemTime::now()
+                                                    .duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
+                                                // Update managed state via app_handle
+                                                if let Ok(ne_state) = Ok::<tauri::State<'_, crate::NEStatusState>, ()>(app_handle.state::<crate::NEStatusState>()) {
+                                                    if let Ok(mut s) = ne_state.status.lock() {
+                                                        s.connected = true;
+                                                        s.ne_version = raw["ne_version"].as_str().unwrap_or("?").to_string();
+                                                        s.ne_build = raw["ne_build"].as_str().unwrap_or("?").to_string();
+                                                        s.mode = raw["mode"].as_str().unwrap_or("?").to_string();
+                                                        s.flow_count = raw["flow_count"].as_u64().unwrap_or(0);
+                                                        s.blocked_count = raw["blocked_count"].as_u64().unwrap_or(0);
+                                                        s.uptime_ms = raw["uptime_ms"].as_u64().unwrap_or(0);
+                                                        s.rule_count = raw["rule_count"].as_u64().unwrap_or(0);
+                                                        s.dns_blocked_count = raw["dns_blocked_count"].as_u64().unwrap_or(0);
+                                                        s.dns_cache_size = raw["dns_cache_size"].as_u64().unwrap_or(0);
+                                                        s.last_heartbeat_ms = now_ms;
+                                                    }
+                                                }
+                                                let _ = app_handle.emit("ne-heartbeat", &raw);
+                                            }
+                                        }
+                                        "ne_error" => {
+                                            if let Ok(raw) = serde_json::from_str::<serde_json::Value>(&line) {
+                                                let category = raw["category"].as_str().unwrap_or("general");
+                                                let message = raw["message"].as_str().unwrap_or("");
+                                                let severity = raw["severity"].as_str().unwrap_or("error");
+                                                log::warn!("NE error [{}]: {}", category, message);
+                                                if let Ok(ne_state) = Ok::<tauri::State<'_, crate::NEStatusState>, ()>(app_handle.state::<crate::NEStatusState>()) {
+                                                    if let Ok(mut s) = ne_state.status.lock() {
+                                                        s.errors.push(crate::ne_bridge::types::NEErrorEvent {
+                                                            category: category.to_string(),
+                                                            message: message.to_string(),
+                                                            severity: severity.to_string(),
+                                                            timestamp_ms: raw["timestamp_ms"].as_u64().unwrap_or(0),
+                                                        });
+                                                        let excess = s.errors.len().saturating_sub(50);
+                                                        if excess > 0 { s.errors.drain(..excess); }
+                                                    }
+                                                }
+                                                let _ = app_handle.emit("ne-error", &raw);
                                             }
                                         }
                                         "listening_ports" => {

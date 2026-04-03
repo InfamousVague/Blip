@@ -10,6 +10,8 @@ struct NEConnectionEvent: Codable {
     let `protocol`: String
     let direction: String
     let timestampMs: UInt64
+    let processPath: String?
+    let codeSigned: Bool?
 
     enum CodingKeys: String, CodingKey {
         case sourceAppId = "source_app_id"
@@ -19,6 +21,8 @@ struct NEConnectionEvent: Codable {
         case `protocol`
         case direction
         case timestampMs = "timestamp_ms"
+        case processPath = "process_path"
+        case codeSigned = "code_signed"
     }
 }
 
@@ -30,6 +34,9 @@ struct NEDnsEvent: Codable {
     let sourceAppId: String
     let sourcePid: Int
     let blocked: Bool
+    let cnameChain: [String]?
+    let ttl: UInt32?
+    let upstreamTimeMs: UInt64?
 
     enum CodingKeys: String, CodingKey {
         case domain
@@ -39,6 +46,9 @@ struct NEDnsEvent: Codable {
         case sourceAppId = "source_app_id"
         case sourcePid = "source_pid"
         case blocked
+        case cnameChain = "cname_chain"
+        case ttl
+        case upstreamTimeMs = "upstream_time_ms"
     }
 }
 
@@ -126,6 +136,46 @@ struct AnyCodable: Codable {
     }
 }
 
+// MARK: - Heartbeat & Diagnostics (NE -> App)
+
+struct NEHeartbeat: Codable {
+    let flowCount: UInt64
+    let blockedCount: UInt64
+    let uptimeMs: UInt64
+    let ruleCount: Int
+    let dnsBlockedCount: UInt64
+    let dnsCacheSize: Int
+    let socketConnected: Bool
+    let neVersion: String
+    let neBuild: String
+    let mode: String
+
+    enum CodingKeys: String, CodingKey {
+        case flowCount = "flow_count"
+        case blockedCount = "blocked_count"
+        case uptimeMs = "uptime_ms"
+        case ruleCount = "rule_count"
+        case dnsBlockedCount = "dns_blocked_count"
+        case dnsCacheSize = "dns_cache_size"
+        case socketConnected = "socket_connected"
+        case neVersion = "ne_version"
+        case neBuild = "ne_build"
+        case mode
+    }
+}
+
+struct NEErrorEvent: Codable {
+    let category: String   // "rule_compile", "socket", "dns", "process_lookup", "general"
+    let message: String
+    let severity: String   // "warn", "error", "critical"
+    let timestampMs: UInt64
+
+    enum CodingKeys: String, CodingKey {
+        case category, message, severity
+        case timestampMs = "timestamp_ms"
+    }
+}
+
 // MARK: - App -> NE Message Types
 
 /// Legacy firewall rule format (kept for backwards compat).
@@ -171,4 +221,5 @@ protocol SocketBridgeDelegate: AnyObject {
     func socketBridge(_ bridge: SocketBridge, didReceiveDNSCacheUpdate mappings: [String: String])
     func socketBridge(_ bridge: SocketBridge, didReceiveKillSwitch active: Bool)
     func socketBridge(_ bridge: SocketBridge, didReceiveApprovalVerdict requestId: String, action: String)
+    func socketBridgeDidReceiveQueryStatus(_ bridge: SocketBridge)
 }

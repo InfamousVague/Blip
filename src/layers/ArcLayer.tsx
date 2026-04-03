@@ -120,35 +120,6 @@ export function NetworkArcLayer({ arcs, particles = [], blockedMarkers = [], sho
   });
   layers.push(arcLayer);
 
-  // Hop markers are rendered as HTML Markers in App.tsx, not deck.gl layers
-
-  // Subtle glow layer — slightly wider, brighter version of active arcs
-  // Creates a soft halo effect. The pulsing comes from the arc's own alpha animation.
-  if (showParticles && arcs.length > 0) {
-    const glowArcs = arcs.filter((d) => d.targetColor[3] > 10);
-    if (glowArcs.length > 0) {
-      const glowLayer = new PathLayer<ArcData>({
-        id: "network-glow",
-        data: glowArcs,
-        getPath: (d: ArcData) => d.path,
-        getColor: (d: ArcData) => {
-          const [r, g, b, a] = d.targetColor;
-          return [r, g, b, Math.min(Math.round(a * 1.5), 80)] as [number, number, number, number];
-        },
-        getWidth: (d: ArcData) => d.width + 3,
-        widthUnits: "pixels" as const,
-        widthMinPixels: 3,
-        widthMaxPixels: 8,
-        capRounded: true,
-        jointRounded: true,
-        updateTriggers: {
-          getColor: [frameCounter.current],
-        },
-      });
-      layers.push(glowLayer);
-    }
-  }
-
   // Marching dash segments — service-colored short paths flowing along arcs
   if (dashSegments.length > 0) {
     // Trail layer (dimmer, slightly wider — luminous fade effect)
@@ -159,10 +130,10 @@ export function NetworkArcLayer({ arcs, particles = [], blockedMarkers = [], sho
         data: trails,
         getPath: (d) => d.trailPath,
         getColor: (d) => d.trailColor,
-        getWidth: (d) => d.width + 2,
+        getWidth: (d) => d.width + 1,
         widthUnits: "pixels" as const,
-        widthMinPixels: 2,
-        widthMaxPixels: 6,
+        widthMinPixels: 1,
+        widthMaxPixels: 4,
         capRounded: true,
         jointRounded: true,
         parameters: { depthTest: false } as any,
@@ -181,8 +152,8 @@ export function NetworkArcLayer({ arcs, particles = [], blockedMarkers = [], sho
       getColor: (d) => d.color,
       getWidth: (d) => d.width,
       widthUnits: "pixels" as const,
-      widthMinPixels: 1.5,
-      widthMaxPixels: 4,
+      widthMinPixels: 1,
+      widthMaxPixels: 3,
       capRounded: true,
       jointRounded: true,
       parameters: { depthTest: false } as any,

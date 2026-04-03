@@ -356,7 +356,7 @@ export function useArcAnimation(
                   color: [r, g, b, 200],
                   trailColor: [r, g, b, 60],
                   trailPath,
-                  width: 3,
+                  width: 1.5,
                 });
               }
             }
@@ -381,7 +381,7 @@ export function useArcAnimation(
                   color: [r, g, b, 200],
                   trailColor: [r, g, b, 60],
                   trailPath,
-                  width: 3,
+                  width: 1.5,
                 });
               }
             }
