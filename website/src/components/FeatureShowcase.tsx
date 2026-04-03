@@ -13,28 +13,28 @@ interface FeatureSection {
 const FEATURES: FeatureSection[] = [
   {
     badge: "Network Map",
-    title: "See every connection on a 3D map",
+    title: "200 connections. Zero of them asked permission.",
     description:
-      "Watch data flow in real time across an interactive map. Every connection your Mac makes is visualized as an arc — with animated particles showing upload and download traffic.",
+      "Every app on your computer is quietly phoning home. Blip puts them all on a 3D map so you can watch the chaos unfold in real time.",
     bullets: [
-      "Connections route through real submarine cables across oceans",
-      "Service-colored arcs identify Google, Discord, Apple, and hundreds more",
-      "Animated marching dashes show data flowing along each connection",
-      "Hop-by-hop traceroute visualization shows the actual network path",
+      "Connections route through actual submarine cables across oceans",
+      "Service-colored arcs — instantly spot Google, Discord, Apple, and hundreds more",
+      "Animated particles show data flowing in both directions",
+      "Hop-by-hop traceroute shows the actual path your packets take",
     ],
     image: "screenshots/map.png",
-    imageAlt: "Blip 3D network map showing connection arcs across the globe",
+    imageAlt: "Blip 3D network map showing connection arcs",
   },
   {
     badge: "Firewall",
-    title: "Control which apps can connect",
+    title: "Bouncer for your bandwidth",
     description:
-      "A smart firewall that lets you approve or deny network access per-app. Three preset profiles — Strict, Balanced, and Open — adapt to your security needs.",
+      "Every app needs permission. No exceptions, no excuses. Strict mode blocks everything until you say otherwise. Because your apps have been way too comfortable.",
     bullets: [
-      "Strict mode blocks all unknown apps until you approve them",
-      "Per-app bandwidth bars show which apps use the most data",
-      "Scoped rules: allow an app on port 443 but block everything else",
-      "Kill switch instantly cuts all network traffic in emergencies",
+      "Strict mode: guilty until proven innocent",
+      "Per-app bandwidth bars expose the data hogs",
+      "Scoped rules — allow port 443 but block everything else",
+      "Kill switch: one click, zero internet, instant silence",
     ],
     image: "screenshots/firewall.png",
     imageAlt: "Blip firewall showing app-level network access controls",
@@ -42,14 +42,14 @@ const FEATURES: FeatureSection[] = [
   },
   {
     badge: "Guard",
-    title: "Block trackers and ads at the DNS level",
+    title: "200,000 trackers blocked before they even connect",
     description:
-      "Blip's Guard combines tracker detection with DNS-level blocking. See which domains are being blocked, which apps are phoning home, and take control of your privacy.",
+      "Your DNS is a snitch. Every app, every ad SDK, every analytics ping — Guard catches them at the door. See who's trying to phone home and shut them down.",
     bullets: [
-      "DNS blocklists block 200k+ known tracker and ad domains",
-      "Real-time query log shows every DNS lookup your Mac makes",
-      "Tracker stats show which blocked domains are most active",
-      "Works alongside the firewall for layered protection",
+      "DNS blocklists nuke 200k+ tracker and ad domains on sight",
+      "Real-time query log — watch every lookup happen live",
+      "Tracker leaderboard shows the most persistent offenders",
+      "Layered with the firewall — two walls, zero mercy",
     ],
     image: "screenshots/guard.png",
     imageAlt: "Blip Guard showing DNS blocking and tracker detection",
@@ -57,31 +57,31 @@ const FEATURES: FeatureSection[] = [
   },
   {
     badge: "Visualization",
-    title: "Your internet's hidden infrastructure",
+    title: "The internet is just wet cables",
     description:
-      "Blip reveals what's invisible — submarine cables carrying your data across oceans, animated particles showing real-time traffic flow, and service-colored arcs that make your network activity tangible.",
+      "Your YouTube video crossed three oceans on a cable thinner than a garden hose. Blip shows you exactly which one — 700+ real submarine cable routes, glowing when your data flows through them.",
     bullets: [
-      "Real submarine cable routes from TeleGeography — 700+ cables worldwide",
-      "Active cables glow when your data flows through them",
-      "Marching dash particles show upload and download direction",
-      "Ping-based animation speed — low latency connections flow faster",
+      "Real submarine cable routes from TeleGeography mapped on the ocean floor",
+      "Active cables light up when your traffic flows through them",
+      "Marching dash particles show upload vs download direction",
+      "Ping-based speed — fast connections flow fast, laggy ones crawl",
     ],
     image: "screenshots/map.png",
-    imageAlt: "Blip visualization showing submarine cables and animated data flow",
+    imageAlt: "Blip visualization showing submarine cables and data flow",
   },
   {
     badge: "Traceroute",
-    title: "See the actual path your data takes",
+    title: "14 hops through 6 cities to load one webpage",
     description:
-      "Blip traces the real network route to every destination — hop by hop. See which routers, cities, and undersea cables your packets cross before reaching their endpoint.",
+      "Every packet bounces through a dozen routers before it arrives. Blip traces the route — hop by hop, city by city, cable by cable — and paints it on the map.",
     bullets: [
-      "Hop-by-hop visualization overlaid directly on the 3D map",
-      "Latency-colored markers: green (<30ms), amber (<100ms), red (>100ms)",
+      "Hop-by-hop markers overlaid directly on the 3D map",
+      "Latency colored: green is fast, amber is okay, red is pain",
       "Routes through real submarine cables across ocean crossings",
       "Automatic traceroute for every active connection",
     ],
     image: "screenshots/hops.png",
-    imageAlt: "Blip traceroute showing hop-by-hop network path on the 3D map",
+    imageAlt: "Blip traceroute showing hop-by-hop network path",
   },
 ];
 

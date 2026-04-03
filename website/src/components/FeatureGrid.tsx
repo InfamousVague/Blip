@@ -10,34 +10,34 @@ interface Feature {
 
 const FEATURES: Feature[] = [
   {
-    icon: "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zM17.9 17.39A9.822 9.822 0 0018 12c0-4.97-3.58-9.09-8.3-9.89",
-    title: "Live Network Map",
-    desc: "Watch every connection arc across a 3D map in real-time. See where your data goes, geographically.",
-  },
-  {
-    icon: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z",
-    title: "Smart Firewall",
-    desc: "Approve or deny network access per-app. Get notified when a new app connects for the first time.",
-  },
-  {
     icon: "M13 2L3 14h9l-1 8 10-12h-9l1-8z",
     title: "Speed Test",
-    desc: "Built-in Cloudflare-powered speed test with live rolling numbers. Download, upload, and ping.",
-  },
-  {
-    icon: "M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.66 0 3-4.03 3-9s-1.34-9-3-9m0 18c-1.66 0-3-4.03-3-9s1.34-9 3-9",
-    title: "DNS Monitor",
-    desc: "See every DNS query your Mac makes. Block trackers and ads with curated blocklists.",
+    desc: "Cloudflare-powered with live rolling numbers. Runs hourly in the background. Alerts you when something's hogging bandwidth.",
   },
   {
     icon: "M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z",
     title: "Service Detection",
-    desc: "Auto-identifies AWS, Google, Discord, Apple, and hundreds more. Track bandwidth per service.",
+    desc: "Knows the difference between Netflix and a crypto miner. Auto-identifies hundreds of services with brand colors.",
   },
   {
     icon: "M5 12h14M12 5l7 7-7 7",
     title: "Port Scanner",
-    desc: "See what's listening on your machine. Identify processes, kill rogue listeners with one click.",
+    desc: "See what's listening on your machine. Find the rogue process, kill it with one click. Done.",
+  },
+  {
+    icon: "M4 6h16M4 12h16M4 18h7",
+    title: "Bandwidth Analytics",
+    desc: "Treemaps, stream charts, bar charts. Drill down from service to domain to individual connection. Actual bytes, not estimates.",
+  },
+  {
+    icon: "M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z",
+    title: "Offline Map Tiles",
+    desc: "The 3D map works without internet. Bundled vector tiles mean you can snoop on your network even when your network is down.",
+  },
+  {
+    icon: "M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z",
+    title: "Setup Wizard",
+    desc: "Ten questions, one minute, fully configured. Pick a firewall profile, set your privacy preferences, and you're protected.",
   },
 ];
 

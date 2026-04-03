@@ -22,10 +22,10 @@ export function HeroSection() {
         <div className="hero__content">
           <img src="./app-icon.png" alt="Blip" className="hero__icon" />
           <h1 className="hero__title">Blip</h1>
-          <p className="hero__subtitle">See where your Mac talks.</p>
+          <p className="hero__subtitle">Your computer has been talking behind your back.</p>
           <p className="hero__desc">
-            Real-time network monitoring with 3D connection mapping,
-            smart firewall, and bandwidth analytics.
+            See exactly where your data goes, who's collecting it, and shut them down
+            — all on a very pretty 3D map.
           </p>
           <a href={downloadUrl} className="hero__cta">
             Download for macOS

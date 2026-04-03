@@ -11,7 +11,7 @@ export function Footer() {
 
   return (
     <section className="site-section footer-section">
-      <h2 className="footer__heading">Ready to see your network?</h2>
+      <h2 className="footer__heading">Ready to find out what your apps have been up to?</h2>
       <div className="footer__buttons">
         <a href={downloadUrl} className="footer__btn footer__btn--primary">
           Download for macOS
