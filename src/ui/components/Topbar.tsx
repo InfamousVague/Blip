@@ -26,6 +26,7 @@ const DEFAULT_MODES = [
   { value: 'network', label: 'Network' },
   { value: 'guard', label: 'Guard' },
   { value: 'firewall', label: 'Firewall' },
+  { value: 'wifi', label: 'WiFi' },
   { value: 'ports', label: 'Ports' },
 ];
 

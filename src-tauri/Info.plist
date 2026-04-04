@@ -3,9 +3,9 @@
 <plist version="1.0">
 <dict>
   <key>NSLocationWhenInUseUsageDescription</key>
-  <string>Blip uses your location to center the map.</string>
+  <string>Blip uses your location to center the network map and to read nearby WiFi network names.</string>
   <key>NSLocationUsageDescription</key>
-  <string>Blip uses your location to center the map.</string>
+  <string>Blip uses your location to center the network map and to read nearby WiFi network names.</string>
   <key>NSAppTransportSecurity</key>
   <dict>
     <key>NSAllowsArbitraryLoads</key>

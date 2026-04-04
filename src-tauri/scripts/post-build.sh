@@ -88,7 +88,7 @@ if [ -f "$NE_DYLIB" ]; then
 fi
 
 # 3. Helper binaries in Resources
-for helper in blip-ne-manager blip-dns-helper; do
+for helper in blip-ne-manager blip-dns-helper wifi-scan; do
     HELPER_PATH="$APP_BUNDLE/Contents/Resources/resources/$helper"
     if [ -f "$HELPER_PATH" ]; then
         if [ "$helper" = "blip-ne-manager" ]; then

@@ -33,6 +33,8 @@ import { TrackerStats } from "./components/stats/TrackerStats";
 import { DnsLog } from "./components/network/DnsLog";
 import { FirewallContent } from "./components/firewall/FirewallSidebar";
 import { PortsSidebar } from "./components/network/PortsSidebar";
+import { WifiSidebar } from "./components/WifiSidebar";
+import { useWifiScan } from "./hooks/useWifiScan";
 import { useDnsCapture } from "./hooks/useDnsCapture";
 import { useServiceBandwidth } from "./hooks/useServiceBandwidth";
 import { useFirewallRules } from "./hooks/useFirewallRules";
@@ -90,7 +92,7 @@ function App() {
       .then((v) => { if (v === "false") setShowInactive(false); })
       .catch(() => {});
   }, []);
-  const [mode, setMode] = useState<"network" | "guard" | "firewall" | "ports">("network");
+  const [mode, setMode] = useState<"network" | "guard" | "firewall" | "wifi" | "ports">("network");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [historicalEndpoints, setHistoricalEndpoints] = useState<HistoricalEndpoint[]>([]);
   const [errorModal, setErrorModal] = useState<{ title: string; description: string; detail?: string } | null>(null);
@@ -166,6 +168,7 @@ function App() {
   const heatmapData = useHeatmapData({ initialEndpoints: historicalEndpoints, liveConnections: connections, visible: showHeatmap });
   const appUpdate = useAppUpdate();
   const { ports: listeningPorts, killProcess } = useListeningPorts(mode === "ports");
+  const wifiScan = useWifiScan(mode === "wifi");
 
   // Show setup prompt once, 3s after first connections appear
   useEffect(() => {
@@ -213,7 +216,7 @@ function App() {
         ip={location?.ip}
         coordinates={location ? `${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}` : undefined}
         mode={mode}
-        onModeChange={(v) => setMode(v as "network" | "guard" | "firewall" | "ports")}
+        onModeChange={(v) => setMode(v as "network" | "guard" | "firewall" | "wifi" | "ports")}
         trailing={
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <Button
@@ -337,6 +340,15 @@ function App() {
         }
         firewallContent={
           <FirewallContent apps={firewallApps} onSetRule={setFirewallRule} onDeleteRuleById={deleteRuleById} connections={connections} />
+        }
+        wifiContent={
+          <WifiSidebar
+            networks={wifiScan.networks}
+            recommendation={wifiScan.recommendation}
+            currentNetwork={wifiScan.currentNetwork}
+            scanning={wifiScan.scanning}
+            onRescan={wifiScan.rescan}
+          />
         }
         portsContent={
           <PortsSidebar ports={listeningPorts} onKill={killProcess} />

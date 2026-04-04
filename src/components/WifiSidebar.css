@@ -1,0 +1,162 @@
+/* Current connection */
+.wifi-current {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.wifi-current__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--blip-success);
+  position: absolute;
+  right: 12px;
+  top: 12px;
+}
+
+.wifi-current__ssid {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--blip-text-primary);
+}
+
+.wifi-current__detail {
+  font-size: 11px;
+  color: var(--blip-text-tertiary);
+}
+
+/* Recommendation */
+.wifi-rec__label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--blip-text-tertiary);
+}
+
+.wifi-rec__entry {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.wifi-rec__entry--current {
+  background: var(--blip-purple-subtle);
+}
+
+.wifi-rec__rank {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--blip-text-tertiary);
+  flex-shrink: 0;
+}
+
+.wifi-rec__entry-info {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.wifi-rec__entry-channel {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--blip-text-primary);
+}
+
+.wifi-rec__current-badge {
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--blip-purple-subtle);
+  color: var(--blip-purple-text);
+}
+
+.wifi-rec__entry-score {
+  font-size: 12px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.wifi-rec__hint {
+  font-size: 11px;
+  color: var(--blip-text-tertiary);
+}
+
+.wifi-rec__hint--good {
+  color: var(--blip-success);
+}
+
+/* Network rows */
+.wifi-net-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+
+.wifi-net-row:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.wifi-net-row--selected {
+  background: var(--blip-purple-subtle);
+}
+
+.wifi-net-row--current .wifi-net-row__ssid {
+  color: var(--blip-success);
+}
+
+.wifi-net-row__main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.wifi-net-row__info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.wifi-net-row__ssid {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--blip-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wifi-net-row__meta {
+  font-size: 11px;
+  color: var(--blip-text-tertiary);
+}
+
+.wifi-net-row__detail {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--blip-text-tertiary);
+  font-family: var(--font-mono);
+}

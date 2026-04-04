@@ -18,6 +18,7 @@ mod speedtest;
 pub(crate) mod state;
 mod dock_icon;
 pub mod firewall;
+pub mod wifi;
 pub mod traceroute;
 
 use blocklist::{BlocklistInfo, BlocklistStore};
@@ -100,6 +101,19 @@ fn get_blocklists(state: tauri::State<AppState>) -> Vec<BlocklistInfo> {
     state.blocklists.get_all()
 }
 
+
+// --- WiFi Scanner ---
+
+#[tauri::command]
+async fn scan_wifi() -> Result<Vec<wifi::WifiNetwork>, String> {
+    wifi::scan().await
+}
+
+#[tauri::command]
+async fn get_wifi_recommendation() -> Result<wifi::analysis::ChannelRecommendation, String> {
+    let networks = wifi::scan().await?;
+    Ok(wifi::analysis::analyze(&networks))
+}
 
 // --- NE Live Status ---
 
@@ -464,6 +478,8 @@ pub fn run() {
             commands::system::get_offline_glyph,
             get_ne_live_status,
             get_expected_ne_version,
+            scan_wifi,
+            get_wifi_recommendation,
             commands::network::trace_route,
             commands::system::get_database_stats,
             commands::network::get_traced_route,
@@ -493,6 +509,14 @@ pub fn run() {
         ])
         .setup(|app| {
             eprintln!("[BOOT] Setup starting...");
+
+            // Open devtools automatically in debug builds
+            #[cfg(debug_assertions)]
+            {
+                if let Some(window) = app.get_webview_window("main") {
+                    window.open_devtools();
+                }
+            }
 
             // Start local tile server for offline PMTiles support
             let res_dir = app.path().resource_dir()
