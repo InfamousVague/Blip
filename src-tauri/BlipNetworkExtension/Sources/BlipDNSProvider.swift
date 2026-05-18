@@ -123,7 +123,10 @@ class BlipDNSProvider: NEDNSProxyProvider {
             timestampMs: UInt64(Date().timeIntervalSince1970 * 1000),
             sourceAppId: sourceAppId,
             sourcePid: sourcePid,
-            blocked: isBlocked
+            blocked: isBlocked,
+            cnameChain: nil,
+            ttl: nil,
+            upstreamTimeMs: nil
         )
         socketBridge?.send(dnsEvent: dnsEvent)
 
@@ -175,7 +178,10 @@ class BlipDNSProvider: NEDNSProxyProvider {
                     timestampMs: UInt64(Date().timeIntervalSince1970 * 1000),
                     sourceAppId: sourceAppId,
                     sourcePid: sourcePid,
-                    blocked: false
+                    blocked: false,
+                    cnameChain: nil,
+                    ttl: nil,
+                    upstreamTimeMs: nil
                 )
                 self.socketBridge?.send(dnsEvent: dnsEvent)
             }

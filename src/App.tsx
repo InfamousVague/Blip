@@ -18,6 +18,7 @@ const tilesReady = registerOfflineProtocols();
 import { useNetworkCapture } from "./hooks/useNetworkEvents";
 import { useArcAnimation } from "./hooks/useArcAnimation";
 import type { EndpointData } from "./hooks/useArcAnimation";
+import { useDeepLinkTarget } from "./hooks/useDeepLink";
 import { useRouteTracing } from "./hooks/useRouteTracing";
 import { useHeatmapData } from "./layers/HeatmapLayer";
 import { RadarMinimap } from "./components/map/RadarMinimap";
@@ -194,6 +195,29 @@ function App() {
     setSelectedId(ep.id);
     startTransition(() => setSelectedEndpoint(ep));
   }, []);
+
+  // Deep link from Port (blip://connection?raddr=…): jump to the network
+  // map and focus the endpoint that owns the matching connection.
+  const deepLinkTarget = useDeepLinkTarget();
+  const resolvedDeepLink = useRef<string | null>(null);
+  useEffect(() => {
+    if (!deepLinkTarget) return;
+    setMode("network");
+    if (connections.length === 0) return;
+    const conn = connections.find(
+      (c) =>
+        c.dest_ip === deepLinkTarget.raddr &&
+        (deepLinkTarget.rport == null || c.dest_port === deepLinkTarget.rport),
+    );
+    if (!conn) return;
+    const epKey = `${conn.dest_lat.toFixed(2)},${conn.dest_lon.toFixed(2)}`;
+    const ep = endpoints.find((e) => e.id === epKey);
+    const dedupeKey = `${deepLinkTarget.raddr}:${deepLinkTarget.rport ?? ""}`;
+    if (ep && resolvedDeepLink.current !== dedupeKey) {
+      resolvedDeepLink.current = dedupeKey;
+      handleEndpointSelect(ep);
+    }
+  }, [deepLinkTarget, connections, endpoints, handleEndpointSelect]);
 
   const handleMapClick = useCallback(() => {
     setSelectedId(null);

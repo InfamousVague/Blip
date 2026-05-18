@@ -17,9 +17,9 @@
 	<key>CFBundlePackageType</key>
 	<string>SYSX</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.4.4</string>
+	<string>0.4.6</string>
 	<key>CFBundleVersion</key>
-	<string>1775186641</string>
+	<string>1778961922</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>12.0</string>
 	<key>NSSystemExtensionUsageDescription</key>

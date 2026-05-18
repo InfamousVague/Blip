@@ -21,6 +21,7 @@
     "notification:default",
     "notification:allow-request-permission",
     "notification:allow-notify",
-    "notification:allow-register-listener"
+    "notification:allow-register-listener",
+    "deep-link:default"
   ]
 }

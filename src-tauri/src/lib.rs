@@ -405,6 +405,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_geolocation::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_deep_link::init())
         .manage(NEStatusState {
             status: std::sync::Mutex::new(ne_bridge::types::NELiveStatus::default()),
         })

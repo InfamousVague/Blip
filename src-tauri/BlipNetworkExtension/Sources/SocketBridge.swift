@@ -29,7 +29,7 @@ class SocketBridge {
     private let queue = DispatchQueue(label: "com.infamousvague.blip.ne.socket", qos: .utility)
     private let readQueue = DispatchQueue(label: "com.infamousvague.blip.ne.socket.read", qos: .utility)
     private var reconnectTimer: DispatchSourceTimer?
-    private var isConnected = false
+    private(set) var isConnected = false
     weak var delegate: SocketBridgeDelegate?
 
     init() {

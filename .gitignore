@@ -42,3 +42,6 @@ src-tauri/resources/hybrid-tiles/
 # Generated documentation artifacts
 docs/generated/*.json
 docs/generated/logs/*.log
+
+# stray lock
+.stash.lock

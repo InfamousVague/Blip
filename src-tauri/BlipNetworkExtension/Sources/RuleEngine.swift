@@ -116,7 +116,7 @@ class RuleIndex {
     /// Load persisted state on init.
     var killSwitch: Bool = {
         let defaults = UserDefaults.standard
-        return defaults?.bool(forKey: "kill_switch_active") ?? false
+        return defaults.bool(forKey: "kill_switch_active") ?? false
     }()
     /// Active profile ID.
     var activeProfileId: String = "default"
@@ -124,7 +124,7 @@ class RuleIndex {
     /// Load persisted mode from shared UserDefaults on init, default to "deny_all" (fail-closed).
     var mode: String = {
         let defaults = UserDefaults.standard
-        return defaults?.string(forKey: "firewall_mode") ?? "deny_all"
+        return defaults.string(forKey: "firewall_mode") ?? "deny_all"
     }()
 
     private let lock = NSLock()
@@ -143,8 +143,8 @@ class RuleIndex {
 
         // Persist mode to UserDefaults for fast access on next startup
         let defaults = UserDefaults.standard
-        defaults?.set(mode, forKey: "firewall_mode")
-        defaults?.set(killSwitch, forKey: "kill_switch_active")
+        defaults.set(mode, forKey: "firewall_mode")
+        defaults.set(killSwitch, forKey: "kill_switch_active")
 
         // Persist full config to file for NE restart survival
         persistConfig(rules: jsonRules, mode: mode, killSwitch: killSwitch, profileId: profileId)
