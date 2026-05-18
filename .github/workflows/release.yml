@@ -41,6 +41,15 @@ jobs:
       - name: Skip tsc for CI build
         run: npm pkg set scripts.build="vite build"
 
+      - name: Generate docs (guide index + manual)
+        # docs/generated/*.json is git-ignored and produced by these scripts.
+        # GuideModal.tsx statically imports docs/generated/guide-index.json, so
+        # it must exist before `vite build`. Skip docs:evidence/docs:refresh:
+        # collect-evidence.mjs runs `npm run build` + `make build` recursively.
+        run: |
+          npm run docs:analyze
+          npm run docs:book
+
       - name: Import Apple certificate
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
